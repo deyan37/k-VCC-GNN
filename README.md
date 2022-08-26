@@ -1,2 +1,2 @@
 run with  
- '''python main_pyg.py --gnn gin --dataset ogbg-molhiv --filename alo'''
+``` python main_pyg.py --gnn gin --dataset ogbg-molhiv ```
