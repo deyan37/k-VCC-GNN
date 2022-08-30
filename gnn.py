@@ -132,7 +132,6 @@ class GNN_FA(torch.nn.Module):
                 self.layer_norms.append(nn.LayerNorm(h_dim))
 
         self.out_dim = out_dim
-        # self.out_layer = nn.Linear(in_features=h_dim, out_features=out_dim, bias=False)
         self.out_layer = nn.Linear(in_features=h_dim, out_features=out_dim + 1, bias=False)
 
     def forward(self, data):
@@ -166,7 +165,6 @@ class GNN_FA(torch.nn.Module):
                 x = self.layer_norms[i](x)
 
         logits = self.out_layer(x[0])
-        # logits = F.linear(root_nodes, self.layer0_values.weight)
         return logits
 
 

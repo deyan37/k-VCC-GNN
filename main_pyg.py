@@ -12,14 +12,11 @@ from networkx.algorithms import approximation as apxa
 from scipy.sparse import csr_array
 import networkx as nx
 
-### importing OGB
 from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
 
 cls_criterion = torch.nn.BCEWithLogitsLoss()
 reg_criterion = torch.nn.MSELoss()
 def add_vcc_data(graph):
-    #print(graph.num_nodes)
-    #print("eho")
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
@@ -36,7 +33,6 @@ def add_vcc_data(graph):
                     if n1 != n2:
                         neigh[i][n1][n2] += 1
     graph.k_vcc_matrix = [neigh[i].flatten() for i in range(0, len(g_decomp))]
-    #print(graph.k_vcc_matrix)
     return graph
 
 def train(model, device, loader, optimizer, task_type):
@@ -51,14 +47,12 @@ def train(model, device, loader, optimizer, task_type):
             optimizer.zero_grad()
             ## ignore nan targets (unlabeled) when computing training loss.
             is_labeled = batch.y == batch.y
-            #print(pred)
             if "classification" in task_type: 
                 loss = cls_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
             else:
                 loss = reg_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
             loss.backward()
             optimizer.step()
-            #print(batch)
 
 def eval(model, device, loader, evaluator):
     model.eval()
