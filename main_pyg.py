@@ -27,19 +27,15 @@ def add_vcc_data(graph):
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
 
     g_decomp = apxa.k_components(G)
-    neigh = np.zeros((graph.num_nodes, graph.num_nodes))
+    neigh = np.zeros((graph.num_nodes, graph.num_nodes, graph.num_nodes))
     for i in g_decomp:
         comps = g_decomp.get(i)
         for t in comps:
             for n1 in t:
                 for n2 in t:
                     if n1 != n2:
-                        neigh[n1][n2] += 1
-    for i in range(len(neigh)):
-        for j in range(len(neigh[i])):
-            if neigh[i][j] <= 1:
-                neigh[i][j] = 0
-    graph.k_vcc_matrix = neigh.flatten()
+                        neigh[i][n1][n2] += 1
+    graph.k_vcc_matrix = [neigh[i].flatten() for i in range(0, len(g_decomp))]
     #print(graph.k_vcc_matrix)
     return graph
 
@@ -62,7 +58,7 @@ def train(model, device, loader, optimizer, task_type):
                 loss = reg_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
             loss.backward()
             optimizer.step()
-            print(batch)
+            #print(batch)
 
 def eval(model, device, loader, evaluator):
     model.eval()
@@ -161,13 +157,13 @@ def main():
     test_loader = DataLoader(dataset[split_idx["test"]], batch_size=args.batch_size, shuffle=False, num_workers = args.num_workers)
 
     if args.gnn == 'gin':
-        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gin', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gin-virtual':
-        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gin', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     elif args.gnn == 'gcn':
-        model = GNN(gnn_type = 'gcn', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gcn', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gcn-virtual':
-        model = GNN(gnn_type = 'gcn', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gcn', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     else:
         raise ValueError('Invalid GNN type')
 
