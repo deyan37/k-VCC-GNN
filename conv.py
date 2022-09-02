@@ -133,30 +133,35 @@ class GNN_node(torch.nn.Module):
                             ids2.append(l)
             k_vcc_edges.append(torch.tensor(np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]), dtype=torch.long))
 
+        #print(k_vcc_edges)
+        h_list = [[self.atom_encoder(x)] for i in range(self.num_layer)]
+        for i in range(self.num_layer):
+            for layer in range(self.num_layer):
+                h = self.convs[layer](h_list[i][layer], k_vcc_edges[layer])
+                h = self.batch_norms[layer](h)
 
-        h_list = [self.atom_encoder(x)]
-        for layer in range(self.num_layer):
-            h = self.convs[layer](h_list[layer], k_vcc_edges[layer])
-            h = self.batch_norms[layer](h)
+                h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
 
-            h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
+                if self.residual:
+                    h += h_list[i][layer]
+
+                h_list[i].append(h)
+
 
             if self.residual:
-                h += h_list[layer]
-
-            h_list.append(h)
-
-
-        if self.residual:
-            h += h_list[self.num_layer-1]
-        h_list.append(h)
+                h += h_list[i][self.num_layer-1]
+                h_list[i].append(h)
+        node_representation = 0
         if self.JK == "last":
-            node_representation = h_list[-1]
+            for i in range(self.num_layer):
+                node_representation += self.alpha[i] * h_list[i][-1]
         elif self.JK == "sum":
             self.alpha = torch.nn.Softmax(dim=1)(self.alpha)
-            node_representation = 0
-            for layer in range(self.num_layer + 1):
-                node_representation += self.alpha[layer] * h_list[layer]
+            for i in range(self.num_layer):
+                node_representation1 = 0
+                for layer in range(self.num_layer):
+                    node_representation1 += h_list[i][layer]
+                node_representation += self.alpha[i] * node_representation1
 
         return node_representation
 
