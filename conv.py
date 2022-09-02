@@ -137,7 +137,7 @@ class GNN_node(torch.nn.Module):
         h_list = [[self.atom_encoder(x)] for i in range(self.num_layer)]
         for i in range(self.num_layer):
             for layer in range(self.num_layer):
-                h = self.convs[layer](h_list[i][layer], k_vcc_edges[layer])
+                h = self.convs[layer](h_list[i][layer], k_vcc_edges[i])
                 h = self.batch_norms[layer](h)
 
                 h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
@@ -152,16 +152,16 @@ class GNN_node(torch.nn.Module):
                 h += h_list[i][self.num_layer-1]
                 h_list[i].append(h)
         node_representation = 0
+        alpha1 = torch.nn.Softmax(dim=0)(self.alpha)
         if self.JK == "last":
             for i in range(self.num_layer):
-                node_representation += self.alpha[i] * h_list[i][-1]
+                node_representation += alpha1[i] * h_list[i][-1]
         elif self.JK == "sum":
-            self.alpha = torch.nn.Softmax(dim=1)(self.alpha)
             for i in range(self.num_layer):
                 node_representation1 = 0
                 for layer in range(self.num_layer):
                     node_representation1 += h_list[i][layer]
-                node_representation += self.alpha[i] * node_representation1
+                node_representation += alpha1[i] * node_representation1
 
         return node_representation
 
