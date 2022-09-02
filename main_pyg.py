@@ -20,18 +20,41 @@ def add_vcc_data(graph):
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
+
+    original_neigh = np.zeros((graph.num_nodes, graph.num_nodes))
     for i in range(0, len(graph.edge_index[0]), 2):
+        original_neigh[graph.edge_index[0][i]][graph.edge_index[1][i]] = 1
+        original_neigh[graph.edge_index[1][i]][graph.edge_index[0][i]] = 1
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
 
     g_decomp = apxa.k_components(G)
     neigh = np.zeros((graph.num_nodes, graph.num_nodes, graph.num_nodes))
     for i in g_decomp:
         comps = g_decomp.get(i)
+        in_comps = list([])
+        for node in range(graph.num_nodes):
+            ic = list([])
+            for comp in range(len(comps)):
+                if node in comps[comp]:
+                    ic.append(comp)
+            in_comps.append(ic)
+        for n1 in range(graph.num_nodes):
+            for nb in range(graph.num_nodes):
+                if original_neigh[n1][nb] == 0:
+                    continue
+                for c in in_comps[nb]:
+                    for n2 in comps[c]:
+                        if n1 == n2:
+                            continue
+                        neigh[i][n1][n2] += 1
+        #print(neigh)
+        '''
         for t in comps:
             for n1 in t:
                 for n2 in t:
                     if n1 != n2:
                         neigh[i][n1][n2] += 1
+        '''
     graph.k_vcc_matrix = [neigh[i].flatten() for i in range(0, len(g_decomp))]
     return graph
 

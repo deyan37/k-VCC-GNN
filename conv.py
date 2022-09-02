@@ -155,13 +155,15 @@ class GNN_node(torch.nn.Module):
         alpha1 = torch.nn.Softmax(dim=0)(self.alpha)
         if self.JK == "last":
             for i in range(self.num_layer):
-                node_representation += alpha1[i] * h_list[i][-1]
+                #node_representation += alpha1[i] * h_list[i][-1]
+                node_representation += h_list[i][-1]
         elif self.JK == "sum":
             for i in range(self.num_layer):
                 node_representation1 = 0
                 for layer in range(self.num_layer):
                     node_representation1 += h_list[i][layer]
-                node_representation += alpha1[i] * node_representation1
+                #node_representation += alpha1[i] * node_representation1
+                node_representation += node_representation1
 
         return node_representation
 
