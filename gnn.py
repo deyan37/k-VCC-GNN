@@ -12,7 +12,7 @@ from torch_scatter import scatter_mean
 
 class GNN(torch.nn.Module):
 
-    def __init__(self, num_tasks, num_layer = 5, emb_dim = 300, 
+    def __init__(self, maxk, num_tasks, num_layer = 5, emb_dim = 300,
                     gnn_type = 'gin', virtual_node = True, residual = False, drop_ratio = 0.5, JK = "last", graph_pooling = "mean"):
         '''
             num_tasks (int): number of labels to be predicted
@@ -35,7 +35,7 @@ class GNN(torch.nn.Module):
         if virtual_node:
             self.gnn_node = GNN_node_Virtualnode(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
         else:
-            self.gnn_node = GNN_node(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
+            self.gnn_node = GNN_node(maxk, num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
 
 
         ### Pooling function to generate whole-graph embeddings
@@ -132,7 +132,6 @@ class GNN_FA(torch.nn.Module):
                 self.layer_norms.append(nn.LayerNorm(h_dim))
 
         self.out_dim = out_dim
-        # self.out_layer = nn.Linear(in_features=h_dim, out_features=out_dim, bias=False)
         self.out_layer = nn.Linear(in_features=h_dim, out_features=out_dim + 1, bias=False)
 
     def forward(self, data):
@@ -166,7 +165,6 @@ class GNN_FA(torch.nn.Module):
                 x = self.layer_norms[i](x)
 
         logits = self.out_layer(x[0])
-        # logits = F.linear(root_nodes, self.layer0_values.weight)
         return logits
 
 

@@ -71,7 +71,7 @@ class GNN_node(torch.nn.Module):
     Output:
         node representations
     """
-    def __init__(self, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
+    def __init__(self, maxk, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
         '''
             emb_dim (int): node embedding dimensionality
             num_layer (int): number of GNN message passing layers
@@ -79,11 +79,13 @@ class GNN_node(torch.nn.Module):
         '''
 
         super(GNN_node, self).__init__()
-        self.num_layer = num_layer
+        self.num_layer = maxk
         self.drop_ratio = drop_ratio
         self.JK = JK
         ### add residual connection or not
         self.residual = residual
+
+        self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(maxk)))
 
         if self.num_layer < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
@@ -97,7 +99,8 @@ class GNN_node(torch.nn.Module):
 
         for layer in range(num_layer):
             if gnn_type == 'gin':
-                self.convs.append(GINConv(emb_dim))
+                #self.convs.append(GINConv(emb_dim))
+                self.convs.append(NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True))
             elif gnn_type == 'gcn':
                 self.convs.append(GCNConv(emb_dim))
             else:
@@ -108,62 +111,59 @@ class GNN_node(torch.nn.Module):
         self.convs.append(GINConv(emb_dim))
     def forward(self, batched_data):
         x, edge_index, edge_attr, batch = batched_data.x, batched_data.edge_index, batched_data.edge_attr, batched_data.batch
-        #print(batched_data.k_vcc_matrix)
+
         k_vcc_matrix = batched_data.k_vcc_matrix
         for i in range(0, len(k_vcc_matrix)):
             t = batched_data.k_vcc_matrix[i]
-            #print(len(t))
-            #print(math.sqrt(len(t)))
-            t = t.reshape((int(math.sqrt(len(t))), int(math.sqrt(len(t)))))
-            k_vcc_matrix[i] = t
-        '''k_vcc_matrix = list()
-        ptr = 0
-        for i in range(batched_data.num_graphs):
-            ptr1 = ptr
-            while batched_data.batch[ptr1+1] == batched_data.batch[ptr]:
-                ptr1 += 1
-            k_vcc_matrix.append(batched_data.k_vcc_matrix[ptr:ptr1+1].reshape(k_vcc_matrix))'''
+            t1 = [t[i].reshape((int(math.sqrt(len(t[i]))), int(math.sqrt(len(t[i]))))) for i in range(len(t))]
+            k_vcc_matrix[i] = t1
 
         ### computing input node embedding
+        k_vcc_edges = []
+        for i in range(self.num_layer):
+            ids1 = []
+            ids2 = []
+            for batch in range(len(k_vcc_matrix)):
+                if len(k_vcc_matrix[batch]) <= i:
+                    continue
+                for j in range(0, len(k_vcc_matrix[batch][i])):
+                    for l in range(j+1, len(k_vcc_matrix[batch][i][j])):
+                        for cnt in range(np.int(k_vcc_matrix[batch][i][j][l])):
+                            ids1.append(j)
+                            ids2.append(l)
+            k_vcc_edges.append(torch.tensor(np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]), dtype=torch.long))
 
-        h_list = [self.atom_encoder(x)]
-        for layer in range(self.num_layer):
+        #print(k_vcc_edges)
+        h_list = [[self.atom_encoder(x)] for i in range(self.num_layer)]
+        for i in range(self.num_layer):
+            for layer in range(self.num_layer):
+                h = self.convs[layer](h_list[i][layer], k_vcc_edges[i])
+                h = self.batch_norms[layer](h)
 
-            h = self.convs[layer](h_list[layer], edge_index, edge_attr)
-            h = self.batch_norms[layer](h)
+                h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
 
-            h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
+                if self.residual:
+                    h += h_list[i][layer]
+
+                h_list[i].append(h)
+
 
             if self.residual:
-                h += h_list[layer]
-
-            h_list.append(h)
-        edges1 = np.array([])
-        ### Different implementations of Jk-concat
-        layer1 = self.num_layer
-        #print(batched_data.num_graphs)
-        for i in range(0, batched_data.ptr.__len__()):
-            ids = np.array([])
-            for j in range(0, batched_data.batch.__len__()):
-                if batched_data.batch[j] == i:
-                    ids = np.append(ids, j)
-            edges1 = np.append(edges1, np.array(np.meshgrid(ids,ids)))
-
-        edge_index1 = torch.tensor(edges1.T.reshape(-1, 2).T, dtype=torch.long)
-
-        h1 = self.fa_conv(h_list[layer1], edge_index1)
-        h1 = self.batch_norms[layer1](h1)
-        h1 = F.dropout(h1, self.drop_ratio, training=self.training)
-
-        if self.residual:
-            h1 += h_list[layer1]
-        h_list.append(h1)
+                h += h_list[i][self.num_layer-1]
+                h_list[i].append(h)
+        node_representation = 0
+        alpha1 = torch.nn.Softmax(dim=0)(self.alpha)
         if self.JK == "last":
-            node_representation = h_list[-1]
+            for i in range(self.num_layer):
+                #node_representation += alpha1[i] * h_list[i][-1]
+                node_representation += h_list[i][-1]
         elif self.JK == "sum":
-            node_representation = 0
-            for layer in range(self.num_layer + 1):
-                node_representation += h_list[layer]
+            for i in range(self.num_layer):
+                node_representation1 = 0
+                for layer in range(self.num_layer):
+                    node_representation1 += h_list[i][layer]
+                #node_representation += alpha1[i] * node_representation1
+                node_representation += node_representation1
 
         return node_representation
 
