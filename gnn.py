@@ -32,6 +32,8 @@ class GNN(torch.nn.Module):
             raise ValueError("Number of GNN layers must be greater than 1.")
 
         ### GNN to generate node embeddings
+        #print("%%%%%%%%%%%%%%%%%%%%")
+        #print(num_layer)
         if virtual_node:
             self.gnn_node = GNN_node_Virtualnode(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
         else:
@@ -58,11 +60,10 @@ class GNN(torch.nn.Module):
             self.graph_pred_linear = torch.nn.Linear(self.emb_dim, self.num_tasks)
 
     def forward(self, batched_data):
-
         h_node = self.gnn_node(batched_data)
-
         h_graph = self.pool(h_node, batched_data.batch)
 
+        self.graph_pred_linear(h_graph)
         return self.graph_pred_linear(h_graph)
 
 

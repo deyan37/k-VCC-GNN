@@ -34,6 +34,24 @@ class GINConv(MessagePassing):
     def update(self, aggr_out):
         return aggr_out
 
+class K_VCC_Conv(MessagePassing):
+
+    def __init__(self, max_k, wrapped_conv_layer):
+        super(K_VCC_Conv, self).__init__(aggr="add")
+
+        self.wrapped_conv_layer = wrapped_conv_layer
+        self.max_k = max_k
+        self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k)))
+    def forward(self, old_embeddings, k_vcc_edges):
+        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0])))
+        for k in range(self.max_k):
+            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).cuda())
+        new_embeddings = torch.zeros((len(old_embeddings), len(old_embeddings[0])))
+        alpha1 = torch.nn.Softmax(dim=0)(self.alpha).cuda()
+        for i in range(0, len(old_embeddings)):
+            new_embeddings[i] = sum([alpha1[j]*msgs_K_N_D[j, i, :].cuda() for j in range(self.max_k)])
+        return new_embeddings
+
 ### GCN convolution along the graph structure
 class GCNConv(MessagePassing):
     def __init__(self, emb_dim):
@@ -77,15 +95,15 @@ class GNN_node(torch.nn.Module):
             num_layer (int): number of GNN message passing layers
 
         '''
-
         super(GNN_node, self).__init__()
-        self.num_layer = maxk
+        self.num_layer = num_layer
+        self.maxk = maxk
         self.drop_ratio = drop_ratio
         self.JK = JK
         ### add residual connection or not
         self.residual = residual
 
-        self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(maxk)))
+
 
         if self.num_layer < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
@@ -99,8 +117,7 @@ class GNN_node(torch.nn.Module):
 
         for layer in range(num_layer):
             if gnn_type == 'gin':
-                #self.convs.append(GINConv(emb_dim))
-                self.convs.append(NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True))
+                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)))
             elif gnn_type == 'gcn':
                 self.convs.append(GCNConv(emb_dim))
             else:
@@ -112,58 +129,43 @@ class GNN_node(torch.nn.Module):
     def forward(self, batched_data):
         x, edge_index, edge_attr, batch = batched_data.x, batched_data.edge_index, batched_data.edge_attr, batched_data.batch
 
-        k_vcc_matrix = batched_data.k_vcc_matrix
-        for i in range(0, len(k_vcc_matrix)):
-            t = batched_data.k_vcc_matrix[i]
-            t1 = [t[i].reshape((int(math.sqrt(len(t[i]))), int(math.sqrt(len(t[i]))))) for i in range(len(t))]
-            k_vcc_matrix[i] = t1
+        k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
+        h_list = [self.atom_encoder(x)]
+        last = -1
+        offset = 0
+        for j in range(len(batched_data.k_vcc_edges_shape)):
+            shape1 = batched_data.k_vcc_edges_shape[j]
+            for k in range(len(shape1)):
+                shape2 = shape1[k]
+                for i in range(shape2):
+                    batched_data.k_vcc_edges[last+i+1] += offset
+                edges1 = np.array([batched_data.k_vcc_edges[int(last+i+1)].cpu() for i in range(int(shape2))]).reshape((2, int(shape2/2)))
+                k_vcc_edges[k+1] = np.array([np.concatenate((k_vcc_edges[k+1][0], edges1[0]), axis=None), np.concatenate((k_vcc_edges[k+1][1], edges1[1]), axis=None)])
+                last += shape2
+            offset = batched_data.ptr[j+1]
+        for layer in range(self.num_layer):
+            h = self.convs[layer](h_list[layer], k_vcc_edges).cuda()
 
-        ### computing input node embedding
-        k_vcc_edges = []
-        for i in range(self.num_layer):
-            ids1 = []
-            ids2 = []
-            for batch in range(len(k_vcc_matrix)):
-                if len(k_vcc_matrix[batch]) <= i:
-                    continue
-                for j in range(0, len(k_vcc_matrix[batch][i])):
-                    for l in range(j+1, len(k_vcc_matrix[batch][i][j])):
-                        for cnt in range(np.int(k_vcc_matrix[batch][i][j][l])):
-                            ids1.append(j)
-                            ids2.append(l)
-            k_vcc_edges.append(torch.tensor(np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]), dtype=torch.long))
+            h = self.batch_norms[layer](h).cuda()
 
-        #print(k_vcc_edges)
-        h_list = [[self.atom_encoder(x)] for i in range(self.num_layer)]
-        for i in range(self.num_layer):
-            for layer in range(self.num_layer):
-                h = self.convs[layer](h_list[i][layer], k_vcc_edges[i])
-                h = self.batch_norms[layer](h)
-
-                h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
-
-                if self.residual:
-                    h += h_list[i][layer]
-
-                h_list[i].append(h)
-
+            h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
 
             if self.residual:
-                h += h_list[i][self.num_layer-1]
-                h_list[i].append(h)
+                h += h_list[layer]
+
+            h_list.append(h)
+
+            if self.residual:
+                h += h_list[self.num_layer-1]
+                h_list.append(h)
         node_representation = 0
-        alpha1 = torch.nn.Softmax(dim=0)(self.alpha)
+
         if self.JK == "last":
-            for i in range(self.num_layer):
-                #node_representation += alpha1[i] * h_list[i][-1]
-                node_representation += h_list[i][-1]
+            node_representation = h_list[-1]
         elif self.JK == "sum":
-            for i in range(self.num_layer):
-                node_representation1 = 0
-                for layer in range(self.num_layer):
-                    node_representation1 += h_list[i][layer]
-                #node_representation += alpha1[i] * node_representation1
-                node_representation += node_representation1
+            for layer in range(self.num_layer):
+                node_representation += h_list[layer]
+
 
         return node_representation
 
