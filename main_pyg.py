@@ -9,7 +9,7 @@ import argparse
 import time
 import numpy as np
 from networkx.algorithms import approximation as apxa
-from scipy.sparse import csr_array
+#from scipy.sparse import csr_array
 import networkx as nx
 
 from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
@@ -55,7 +55,35 @@ def add_vcc_data(graph):
                     if n1 != n2:
                         neigh[i][n1][n2] += 1
         '''
-    graph.k_vcc_matrix = [neigh[i].flatten() for i in range(0, len(g_decomp))]
+    k_vcc_matrix = [neigh[i+1] for i in range(0, len(g_decomp))]
+    k_vcc_edges = np.array([])
+    k_vcc_edges_shape = []
+    #maxk
+    #print('+++++++++++++++')
+    #print(k_vcc_matrix)
+    for i in range(3):
+        ids1 = []
+        ids2 = []
+        if len(k_vcc_matrix) <= i:
+            continue
+        for j in range(0, len(k_vcc_matrix[i])):
+            for l in range(j + 1, len(k_vcc_matrix[i][j])):
+                for cnt in range(int(k_vcc_matrix[i][j][l])):
+                    ids1.append(j)
+                    ids2.append(l)
+        t = len(k_vcc_edges)
+        #print(len(ids1))
+        k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
+        k_vcc_edges_shape.append(len(k_vcc_edges)-t)
+    #graph.k_vcc_edges = [k_vcc_edges[i] for i in range(len(k_vcc_edges))]
+    #print(k_vcc_edges)
+    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges))
+    graph.k_vcc_edges_shape = k_vcc_edges_shape
+    #print(graph.k_vcc_edges)
+    #print(graph.k_vcc_edges_shape)
+    '''#print(graph.k_vcc_edges)
+    #print(graph.k_vcc_edges_shape)
+    '''
     return graph
 
 def train(model, device, loader, optimizer, task_type):
@@ -63,24 +91,43 @@ def train(model, device, loader, optimizer, task_type):
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
+        batch = batch.cuda()
+        model.cuda()
+        batch.x = batch.x.cuda()
         if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
             pass
         else:
+            #print('*********************')
+            #print('eho?')
             pred = model(batch)
+            #print('*********************')
+            #print('eho1')
             optimizer.zero_grad()
+            #print('*********************')
+            #print('eho2')
             ## ignore nan targets (unlabeled) when computing training loss.
             is_labeled = batch.y == batch.y
             if "classification" in task_type: 
                 loss = cls_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
             else:
                 loss = reg_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
+
+            #print('*********************')
+            #print('eho3')
+            #print(model)
+            #print(batch)
             loss.backward()
+            #print('*********************')
+            #print('eho4')
             optimizer.step()
+            #print('*********************')
+            #print('eho5')
 
 def eval(model, device, loader, evaluator):
     model.eval()
     y_true = []
     y_pred = []
+    #model.cuda()
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
@@ -113,10 +160,10 @@ def main():
                         help='GNN gin, gin-virtual, or gcn, or gcn-virtual (default: gin-virtual)')
     parser.add_argument('--drop_ratio', type=float, default=0.5,
                         help='dropout ratio (default: 0.5)')
-    parser.add_argument('--num_layer', type=int, default=10,
-                        help='number of GNN message passing layers (default: 5)')
-    parser.add_argument('--emb_dim', type=int, default=300,
-                        help='dimensionality of hidden units in GNNs (default: 300)')
+    parser.add_argument('--num_layer', type=int, default=2,
+                        help='number of GNN message passing layers (default: 2)')
+    parser.add_argument('--emb_dim', type=int, default=32,
+                        help='dimensionality of hidden units in GNNs (default: 32)')
     parser.add_argument('--dim0', type=int, default=300,
                         help='')
     parser.add_argument('--h_dim', type=int, default=300,
@@ -153,8 +200,9 @@ def main():
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
 
     ### automatic dataloading and splitting
+    print('eho1')
     dataset = PygGraphPropPredDataset(name = args.dataset, pre_transform=add_vcc_data)
-
+    print('eho2')
     #dataset.pre_transform = add_vcc_data
 
     if args.feature == 'full':
@@ -172,7 +220,12 @@ def main():
     train_loader = DataLoader(dataset[split_idx["train"]], batch_size=args.batch_size, shuffle=True, num_workers = args.num_workers)
     valid_loader = DataLoader(dataset[split_idx["valid"]], batch_size=args.batch_size, shuffle=False, num_workers = args.num_workers)
     test_loader = DataLoader(dataset[split_idx["test"]], batch_size=args.batch_size, shuffle=False, num_workers = args.num_workers)
-
+    '''print(device)
+    print(torch.version.cuda)
+    print(torch.cuda.is_available())
+    return'''
+    #print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    #print(args.num_layer)
     if args.gnn == 'gin':
         model = GNN(gnn_type = 'gin', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gin-virtual':
