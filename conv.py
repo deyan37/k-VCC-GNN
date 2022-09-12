@@ -42,15 +42,20 @@ class K_VCC_Conv(MessagePassing):
         self.wrapped_conv_layer = wrapped_conv_layer
         self.max_k = max_k
         self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k)))
+
     def forward(self, old_embeddings, k_vcc_edges):
         msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0])))
         for k in range(self.max_k):
             msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).cuda())
         new_embeddings = torch.zeros((len(old_embeddings), len(old_embeddings[0])))
         alpha1 = torch.nn.Softmax(dim=0)(self.alpha).cuda()
-        for i in range(0, len(old_embeddings)):
-            new_embeddings[i] = sum([alpha1[j]*msgs_K_N_D[j, i, :].cuda() for j in range(self.max_k)])
-        return new_embeddings
+        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0)
+        new_embeddings1 = torch.sum((msgs_N_D_K.cuda()*alpha1.cuda()).cuda(), dim=2).double()
+        #for i in range(0, len(old_embeddings)):
+        #    new_embeddings[i] = sum([alpha1[j]*msgs_K_N_D[j, i, :].cuda() for j in range(self.max_k)])
+        #print(new_embeddings)
+        #return
+        return new_embeddings1
 
 ### GCN convolution along the graph structure
 class GCNConv(MessagePassing):
@@ -128,23 +133,55 @@ class GNN_node(torch.nn.Module):
         self.convs.append(GINConv(emb_dim))
     def forward(self, batched_data):
         x, edge_index, edge_attr, batch = batched_data.x, batched_data.edge_index, batched_data.edge_attr, batched_data.batch
+        k_vcc_edges_shape = batched_data.k_vcc_edges_shape
+        ptr = batched_data.ptr
 
-        k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
+        #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
+        k_vcc_edges = [[[], []] for i in range(self.maxk)]
         h_list = [self.atom_encoder(x)]
         last = -1
         offset = 0
-        for j in range(len(batched_data.k_vcc_edges_shape)):
+        curr_l = 0
+        j = 0
+        rem = sum(k_vcc_edges_shape[0])
+        for i in range(len(batched_data.k_vcc_edges)):
+            if rem == 0:
+                j += 1
+                rem = sum(k_vcc_edges_shape[j])
+            batched_data.k_vcc_edges[i] += ptr[j]
+        for c_shape in k_vcc_edges_shape:
+            k = 0
+            for shape1 in c_shape:
+                curr_r = curr_l + shape1
+                k += 1
+                k_vcc_edges[k][0] = k_vcc_edges[k][0] + batched_data.k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0].tolist()
+                k_vcc_edges[k][1] = k_vcc_edges[k][1] + batched_data.k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1].tolist()
+                curr_l = curr_r
+
+            #print(c_shape)
+
+        '''for j in range(len(batched_data.k_vcc_edges_shape)):
             shape1 = batched_data.k_vcc_edges_shape[j]
             for k in range(len(shape1)):
                 shape2 = shape1[k]
-                for i in range(shape2):
-                    batched_data.k_vcc_edges[last+i+1] += offset
+                #for i in range(shape2):
+                #    batched_data.k_vcc_edges[last+i+1] += offset
                 edges1 = np.array([batched_data.k_vcc_edges[int(last+i+1)].cpu() for i in range(int(shape2))]).reshape((2, int(shape2/2)))
                 k_vcc_edges[k+1] = np.array([np.concatenate((k_vcc_edges[k+1][0], edges1[0]), axis=None), np.concatenate((k_vcc_edges[k+1][1], edges1[1]), axis=None)])
                 last += shape2
             offset = batched_data.ptr[j+1]
+        '''
+        #print('&&&&&&&&&&&&&&&&&&&&&&&&&&&')
+        #print(k_vcc_edges1[1][0])
+        #print(k_vcc_edges1[0][0])
+        #print(len(k_vcc_edges1[1][0]))
+        #print(len(k_vcc_edges1[1][1]))
+        #print([np.array(k_vcc_edges1[i], dtype=np.float) for i in range(self.maxk)])
+        #print('&&&&&&&&&&&&&&&&&&&&&&&&&&&')
+        #print(k_vcc_edges)
+        #return
         for layer in range(self.num_layer):
-            h = self.convs[layer](h_list[layer], k_vcc_edges).cuda()
+            h = self.convs[layer](h_list[layer], k_vcc_edges).cuda().float()
 
             h = self.batch_norms[layer](h).cuda()
 
