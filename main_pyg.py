@@ -84,7 +84,7 @@ def add_vcc_data(graph):
     '''#print(graph.k_vcc_edges)
     #print(graph.k_vcc_edges_shape)
     '''
-    graph = graph.cuda()
+    graph.cuda()
     return graph
 
 def train(model, device, loader, optimizer, task_type):
