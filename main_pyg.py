@@ -204,6 +204,7 @@ def main():
     print('eho1')
     dataset = PygGraphPropPredDataset(name = args.dataset, pre_transform=add_vcc_data)
     print('eho2')
+    print(torch.cuda.is_available())
     #dataset.pre_transform = add_vcc_data
 
     if args.feature == 'full':
