@@ -44,17 +44,12 @@ class K_VCC_Conv(MessagePassing):
         self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k)))
 
     def forward(self, old_embeddings, k_vcc_edges):
-        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0])))
+        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0]))).cuda()
         for k in range(self.max_k):
-            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).cuda())
-        new_embeddings = torch.zeros((len(old_embeddings), len(old_embeddings[0])))
+            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).cuda()).cuda()
         alpha1 = torch.nn.Softmax(dim=0)(self.alpha).cuda()
-        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0)
-        new_embeddings1 = torch.sum((msgs_N_D_K.cuda()*alpha1.cuda()).cuda(), dim=2).double()
-        #for i in range(0, len(old_embeddings)):
-        #    new_embeddings[i] = sum([alpha1[j]*msgs_K_N_D[j, i, :].cuda() for j in range(self.max_k)])
-        #print(new_embeddings)
-        #return
+        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).cuda()
+        new_embeddings1 = torch.sum((msgs_N_D_K.cuda()*alpha1.cuda()).cuda(), dim=2).double().cuda()
         return new_embeddings1
 
 ### GCN convolution along the graph structure
@@ -117,12 +112,12 @@ class GNN_node(torch.nn.Module):
 
         ###List of GNNs
         self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)
-        self.convs = torch.nn.ModuleList()
-        self.batch_norms = torch.nn.ModuleList()
+        self.convs = torch.nn.ModuleList().cuda()
+        self.batch_norms = torch.nn.ModuleList().cuda()
 
         for layer in range(num_layer):
             if gnn_type == 'gin':
-                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)))
+                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)).cuda())
             elif gnn_type == 'gcn':
                 self.convs.append(GCNConv(emb_dim))
             else:
@@ -138,7 +133,7 @@ class GNN_node(torch.nn.Module):
 
         #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
         k_vcc_edges = [[[], []] for i in range(self.maxk)]
-        h_list = [self.atom_encoder(x)]
+        h_list = [self.atom_encoder(x).cuda()]
         last = -1
         offset = 0
         curr_l = 0
