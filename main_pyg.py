@@ -100,7 +100,7 @@ def train(model, device, loader, optimizer, task_type):
         else:
             #print('*********************')
             #print('eho?')
-            pred = model(batch)
+            pred = model(batch).cuda()
             #print('*********************')
             #print('eho1')
             optimizer.zero_grad()
@@ -125,10 +125,11 @@ def train(model, device, loader, optimizer, task_type):
             #print('eho5')
 
 def eval(model, device, loader, evaluator):
+    model.cuda()
     model.eval()
     y_true = []
     y_pred = []
-    #model.cuda()
+    model.cuda()
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
@@ -139,11 +140,11 @@ def eval(model, device, loader, evaluator):
             with torch.no_grad():
                 pred = model(batch)
 
-            y_true.append(batch.y.view(pred.shape).detach().cpu())
-            y_pred.append(pred.detach().cpu())
+            y_true.append(batch.y.view(pred.shape).detach().cuda())
+            y_pred.append(pred.detach().cuda())
 
-    y_true = torch.cat(y_true, dim = 0).numpy()
-    y_pred = torch.cat(y_pred, dim = 0).numpy()
+    y_true = torch.cat(y_true, dim = 0).cuda().numpy()
+    y_pred = torch.cat(y_pred, dim = 0).cuda().numpy()
 
     input_dict = {"y_true": y_true, "y_pred": y_pred}
 
@@ -244,6 +245,10 @@ def main():
     valid_curve = []
     test_curve = []
     train_curve = []
+
+    torch.backends.cudnn.benchmark = True
+    print('*************************')
+    print(device)
 
     for epoch in range(1, args.epochs + 1):
         print("=====Epoch {}".format(epoch))
