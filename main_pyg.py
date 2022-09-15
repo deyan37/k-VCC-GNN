@@ -19,13 +19,14 @@ reg_criterion = torch.nn.MSELoss()
 def add_vcc_data(graph):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     #device = "cpu"
-    print(device)
+    #print(device)
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
 
     original_neigh = np.zeros((graph.num_nodes, graph.num_nodes))
-    for i in range(0, len(graph.edge_index[0]), 2):
+    graph.edge_index = graph.edge_index.cuda()
+    for i in range(0, len(graph.edge_index[0].cuda()), 2):
         original_neigh[graph.edge_index[0][i]][graph.edge_index[1][i]] = 1
         original_neigh[graph.edge_index[1][i]][graph.edge_index[0][i]] = 1
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
@@ -33,20 +34,20 @@ def add_vcc_data(graph):
     g_decomp = apxa.k_components(G)
     neigh = np.zeros((graph.num_nodes, graph.num_nodes, graph.num_nodes))
     for i in g_decomp:
-        comps = g_decomp.get(i)
+        comps = g_decomp.get(i).cuda()
         in_comps = list([])
-        for node in range(graph.num_nodes):
+        for node in range(graph.num_nodes.cuda()):
             ic = list([])
-            for comp in range(len(comps)):
-                if node in comps[comp]:
+            for comp in range(len(comps.cuda())):
+                if node in comps[comp].cuda():
                     ic.append(comp)
             in_comps.append(ic)
-        for n1 in range(graph.num_nodes):
-            for nb in range(graph.num_nodes):
-                if original_neigh[n1][nb] == 0:
+        for n1 in range(graph.num_nodes.cuda()):
+            for nb in range(graph.num_nodes.cuda()):
+                if original_neigh[n1][nb].cuda() == 0:
                     continue
-                for c in in_comps[nb]:
-                    for n2 in comps[c]:
+                for c in in_comps[nb].cuda():
+                    for n2 in comps[c].cuda():
                         if n1 == n2:
                             continue
                         neigh[i][n1][n2] += 1
@@ -78,27 +79,18 @@ def add_vcc_data(graph):
         #print(len(ids1))
         k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
         k_vcc_edges_shape.append(len(k_vcc_edges)-t)
-    #graph.k_vcc_edges = [k_vcc_edges[i] for i in range(len(k_vcc_edges))]
-    #print(k_vcc_edges)
     graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges)).to(device)
     graph.k_vcc_edges_shape = k_vcc_edges_shape
-    #print(graph.k_vcc_edges)
-    #print(graph.k_vcc_edges_shape)
-    '''#print(graph.k_vcc_edges)
-    #print(graph.k_vcc_edges_shape)
-    '''
     graph = graph.to(device)
     return graph.to(device)
 
 def train(model, device, loader, optimizer, task_type):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     #device = "cpu"
-    print(device)
+    #print(device)
     model.to(device)
     model.cuda()
-    #print(model.is_cuda())
     model.train()
-    #return
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
         batch = batch.to(device)
@@ -122,21 +114,15 @@ def train(model, device, loader, optimizer, task_type):
             else:
                 loss = reg_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
 
-            #print('*********************')
-            #print('eho3')
-            #print(model)
-            #print(batch)
-            loss.backward()
-            #print('*********************')
-            #print('eho4')
+            loss.cuda().backward()
+
             optimizer.step()
-            #print('*********************')
-            #print('eho5')
+
 
 def eval(model, device, loader, evaluator):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     #device = "cpu"
-    print(device)
+    #print(device)
 
     model.to(device)
     model.eval()
@@ -146,20 +132,20 @@ def eval(model, device, loader, evaluator):
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
-
+        batch.x = batch.x.to(device)
         if batch.x.shape[0] == 1:
             pass
         else:
             with torch.no_grad():
                 pred = model(batch).to(device)
 
-            y_true.append(batch.y.view(pred.shape).detach().to(device))
+            y_true.append(batch.y.cuda().view(pred.cuda().shape).detach().to(device))
             y_pred.append(pred.detach().to(device))
 
     y_true = torch.cat(y_true, dim = 0).to(device).numpy()
     y_pred = torch.cat(y_pred, dim = 0).to(device).numpy()
 
-    input_dict = {"y_true": y_true, "y_pred": y_pred}
+    input_dict = {"y_true": y_true.cuda(), "y_pred": y_pred.cuda()}
 
     return evaluator.eval(input_dict)
 
@@ -225,8 +211,8 @@ def main():
         pass
     elif args.feature == 'simple':
         # only retain the top two node/edge features
-        dataset.data.x = dataset.data.x[:,:2]
-        dataset.data.edge_attr = dataset.data.edge_attr[:,:2]
+        dataset.data.x = dataset.data.x[:,:2].cuda()
+        dataset.data.edge_attr = dataset.data.edge_attr[:,:2].cuda()
 
     split_idx = dataset.get_idx_split()
 
@@ -279,16 +265,16 @@ def main():
 
         print({'Train': train_perf, 'Validation': valid_perf, 'Test': test_perf})
 
-        train_curve.append(train_perf[dataset.eval_metric])
-        valid_curve.append(valid_perf[dataset.eval_metric])
-        test_curve.append(test_perf[dataset.eval_metric])
+        train_curve.append(train_perf[dataset.eval_metric].cuda())
+        valid_curve.append(valid_perf[dataset.eval_metric].cuda())
+        test_curve.append(test_perf[dataset.eval_metric].cuda())
 
     if 'classification' in dataset.task_type:
         best_val_epoch = np.argmax(np.array(valid_curve))
-        best_train = max(train_curve)
+        best_train = max(train_curve).cuda()
     else:
         best_val_epoch = np.argmin(np.array(valid_curve))
-        best_train = min(train_curve)
+        best_train = min(train_curve).cuda()
 
     print('Finished training!')
     print('Best validation score: {}'.format(valid_curve[best_val_epoch]))
