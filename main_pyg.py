@@ -2,7 +2,7 @@ import torch
 from torch_geometric.loader import DataLoader
 import torch.optim as optim
 import torch.nn.functional as F
-from gnn import GNN, GNN_FA, GNN_TYPE
+from gnn import GNN#, GNN_FA, GNN_TYPE
 
 from tqdm import tqdm
 import argparse
@@ -17,6 +17,9 @@ from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
 cls_criterion = torch.nn.BCEWithLogitsLoss()
 reg_criterion = torch.nn.MSELoss()
 def add_vcc_data(graph):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    #device = "cpu"
+    print(device)
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
@@ -77,30 +80,36 @@ def add_vcc_data(graph):
         k_vcc_edges_shape.append(len(k_vcc_edges)-t)
     #graph.k_vcc_edges = [k_vcc_edges[i] for i in range(len(k_vcc_edges))]
     #print(k_vcc_edges)
-    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges))
+    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges)).to(device)
     graph.k_vcc_edges_shape = k_vcc_edges_shape
     #print(graph.k_vcc_edges)
     #print(graph.k_vcc_edges_shape)
     '''#print(graph.k_vcc_edges)
     #print(graph.k_vcc_edges_shape)
     '''
-    graph = graph.cuda()
-    return graph
+    graph = graph.to(device)
+    return graph.to(device)
 
 def train(model, device, loader, optimizer, task_type):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    #device = "cpu"
+    print(device)
+    model.to(device)
+    model.cuda()
+    #print(model.is_cuda())
     model.train()
-
+    #return
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
-        batch = batch.cuda()
-        model.cuda()
-        batch.x = batch.x.cuda()
+        batch = batch.to(device)
+        model.to(device)
+        batch.x = batch.x.to(device)
         if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
             pass
         else:
             #print('*********************')
             #print('eho?')
-            pred = model(batch).cuda()
+            pred = model(batch).to(device)
             #print('*********************')
             #print('eho1')
             optimizer.zero_grad()
@@ -108,10 +117,10 @@ def train(model, device, loader, optimizer, task_type):
             #print('eho2')
             ## ignore nan targets (unlabeled) when computing training loss.
             is_labeled = batch.y == batch.y
-            if "classification" in task_type: 
-                loss = cls_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
+            if "classification" in task_type:
+                loss = cls_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
             else:
-                loss = reg_criterion(pred.to(torch.float32)[is_labeled], batch.y.to(torch.float32)[is_labeled])
+                loss = reg_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
 
             #print('*********************')
             #print('eho3')
@@ -125,11 +134,15 @@ def train(model, device, loader, optimizer, task_type):
             #print('eho5')
 
 def eval(model, device, loader, evaluator):
-    model.cuda()
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    #device = "cpu"
+    print(device)
+
+    model.to(device)
     model.eval()
     y_true = []
     y_pred = []
-    model.cuda()
+    model.to(device)
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
@@ -138,13 +151,13 @@ def eval(model, device, loader, evaluator):
             pass
         else:
             with torch.no_grad():
-                pred = model(batch)
+                pred = model(batch).to(device)
 
-            y_true.append(batch.y.view(pred.shape).detach().cuda())
-            y_pred.append(pred.detach().cuda())
+            y_true.append(batch.y.view(pred.shape).detach().to(device))
+            y_pred.append(pred.detach().to(device))
 
-    y_true = torch.cat(y_true, dim = 0).cuda().numpy()
-    y_pred = torch.cat(y_pred, dim = 0).cuda().numpy()
+    y_true = torch.cat(y_true, dim = 0).to(device).numpy()
+    y_pred = torch.cat(y_pred, dim = 0).to(device).numpy()
 
     input_dict = {"y_true": y_true, "y_pred": y_pred}
 
@@ -200,7 +213,7 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
-
+    # device = "cpu"
     ### automatic dataloading and splitting
     print('eho1')
     dataset = PygGraphPropPredDataset(name = args.dataset, pre_transform=add_vcc_data)
@@ -209,7 +222,7 @@ def main():
     #dataset.pre_transform = add_vcc_data
 
     if args.feature == 'full':
-        pass 
+        pass
     elif args.feature == 'simple':
         # only retain the top two node/edge features
         dataset.data.x = dataset.data.x[:,:2]
@@ -250,11 +263,15 @@ def main():
     print('*************************')
     print(device)
 
+    print(torch.cuda.device_count())
+    print(torch.cuda.current_device())
+    print(torch.cuda.get_device_name(0))
+    #return
     for epoch in range(1, args.epochs + 1):
         print("=====Epoch {}".format(epoch))
         print('Training...')
         train(model, device, train_loader, optimizer, dataset.task_type)
-
+        #return
         print('Evaluating...')
         train_perf = eval(model, device, train_loader, evaluator)
         valid_perf = eval(model, device, valid_loader, evaluator)

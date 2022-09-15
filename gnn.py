@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv, GatedGraphConv, GINConv, GATConv
 from torch_geometric.nn.inits import uniform
 from enum import Enum, auto
-from conv import GNN_node, GNN_node_Virtualnode
+from conv import GNN_node#, GNN_node_Virtualnode
 
 from torch_scatter import scatter_mean
 
@@ -31,13 +31,17 @@ class GNN(torch.nn.Module):
         if self.num_layer < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
 
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        #device = 'cpu'
+        print(device)
+
         ### GNN to generate node embeddings
         #print("%%%%%%%%%%%%%%%%%%%%")
         #print(num_layer)
         if virtual_node:
-            self.gnn_node = GNN_node_Virtualnode(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
+            self.gnn_node = GNN_node_Virtualnode(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type).to(device)
         else:
-            self.gnn_node = GNN_node(maxk, num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type)
+            self.gnn_node = GNN_node(maxk, num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type).to(device)
 
 
         ### Pooling function to generate whole-graph embeddings
@@ -60,15 +64,18 @@ class GNN(torch.nn.Module):
             self.graph_pred_linear = torch.nn.Linear(self.emb_dim, self.num_tasks)
 
     def forward(self, batched_data):
-        h_node = self.gnn_node(batched_data)
-        h_graph = self.pool(h_node, batched_data.batch)
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        #device = 'cpu'
+        print(device)
 
-        self.graph_pred_linear(h_graph)
-        return self.graph_pred_linear(h_graph)
+        h_node = self.gnn_node(batched_data).to(device)
+        h_graph = self.pool(h_node, batched_data.batch).to(device)
+
+        return self.graph_pred_linear(h_graph).to(device)
 
 
 
-class GNN_TYPE(Enum):
+'''class GNN_TYPE(Enum):
     GCN = auto()
     GGNN = auto()
     GIN = auto()
@@ -174,4 +181,4 @@ class GNN_FA(torch.nn.Module):
 
 if __name__ == '__main__':
     GNN(num_tasks = 10)
-    GNN_FA()
+    GNN_FA()'''

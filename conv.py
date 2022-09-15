@@ -9,11 +9,11 @@ import numpy as np
 import math
 
 ### GIN convolution along the graph structure
-class GINConv(MessagePassing):
+'''class GINConv(MessagePassing):
     def __init__(self, emb_dim):
-        '''
-            emb_dim (int): node embedding dimensionality
-        '''
+        
+        #   emb_dim (int): node embedding dimensionality
+        
 
         super(GINConv, self).__init__(aggr = "add")
 
@@ -23,17 +23,17 @@ class GINConv(MessagePassing):
         self.bond_encoder = BondEncoder(emb_dim = emb_dim)
 
     def forward(self, x, edge_index, edge_attr):
-        edge_embedding = self.bond_encoder(edge_attr)
-        out = self.mlp((1 + self.eps) * x + self.propagate(edge_index, x=x, edge_attr=edge_embedding))
+        edge_embedding = self.bond_encoder(edge_attr).cuda()
+        out = self.mlp((1 + self.eps) * x + self.propagate(edge_index, x=x, edge_attr=edge_embedding)).cuda()
 
-        return out
+        return out.cuda()
 
     def message(self, x_j, edge_attr):
         return F.relu(x_j + edge_attr)
 
     def update(self, aggr_out):
-        return aggr_out
-
+        return aggr_out.cuda()
+'''
 class K_VCC_Conv(MessagePassing):
 
     def __init__(self, max_k, wrapped_conv_layer):
@@ -44,16 +44,20 @@ class K_VCC_Conv(MessagePassing):
         self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k)))
 
     def forward(self, old_embeddings, k_vcc_edges):
-        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0]))).cuda()
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        #device = 'cpu'
+        print(device)
+
+        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0]))).to(device)
         for k in range(self.max_k):
-            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).cuda()).cuda()
-        alpha1 = torch.nn.Softmax(dim=0)(self.alpha).cuda()
-        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).cuda()
-        new_embeddings1 = torch.sum((msgs_N_D_K.cuda()*alpha1.cuda()).cuda(), dim=2).double().cuda()
-        return new_embeddings1
+            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).to(device)).to(device)
+        alpha1 = torch.nn.Softmax(dim=0)(self.alpha).to(device)
+        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).to(device)
+        new_embeddings1 = torch.sum((msgs_N_D_K.to(device)*alpha1.to(device)).to(device), dim=2).double().to(device)
+        return new_embeddings1.to(device)
 
 ### GCN convolution along the graph structure
-class GCNConv(MessagePassing):
+'''class GCNConv(MessagePassing):
     def __init__(self, emb_dim):
         super(GCNConv, self).__init__(aggr='add')
 
@@ -82,7 +86,7 @@ class GCNConv(MessagePassing):
     def update(self, aggr_out):
         return aggr_out
 
-
+'''
 ### GNN to generate node embedding
 class GNN_node(torch.nn.Module):
     """
@@ -103,6 +107,9 @@ class GNN_node(torch.nn.Module):
         ### add residual connection or not
         self.residual = residual
 
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        #device = 'cpu'
+        print(device)
 
 
         if self.num_layer < 2:
@@ -111,31 +118,37 @@ class GNN_node(torch.nn.Module):
         self.atom_encoder = AtomEncoder(emb_dim)
 
         ###List of GNNs
-        self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)
-        self.convs = torch.nn.ModuleList().cuda()
-        self.batch_norms = torch.nn.ModuleList().cuda()
+        self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True).to(device)
+        self.convs = torch.nn.ModuleList().to(device)
+        self.batch_norms = torch.nn.ModuleList().to(device)
 
         for layer in range(num_layer):
             if gnn_type == 'gin':
-                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True)).cuda())
-            elif gnn_type == 'gcn':
+                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim).to(device), torch.nn.BatchNorm1d(2*emb_dim).to(device), torch.nn.ReLU().to(device), torch.nn.Linear(2*emb_dim, emb_dim).to(device)), train_eps=True).to(device)).to(device))
+            '''elif gnn_type == 'gcn':
                 self.convs.append(GCNConv(emb_dim))
             else:
-                raise ValueError('Undefined GNN type called {}'.format(gnn_type))
+                raise ValueError('Undefined GNN type called {}'.format(gnn_type))'''
 
-            self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim))
-        self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim))
-        self.convs.append(GINConv(emb_dim))
+            self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).to(device))
+        self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).to(device))
+        #self.convs.append(GINConv(emb_dim).cuda())
     def forward(self, batched_data):
-        x, edge_index, edge_attr, batch = batched_data.x, batched_data.edge_index, batched_data.edge_attr, batched_data.batch
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        #device = 'cpu'
+        print(device)
+
+        '''print(torch.cuda.get_device_name(0))
+        print('Memory Usage:')
+        print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
+        print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')'''
+        x, edge_index, edge_attr, batch = batched_data.x.to(device), batched_data.edge_index.to(device), batched_data.edge_attr.to(device), batched_data.batch.to(device)
         k_vcc_edges_shape = batched_data.k_vcc_edges_shape
-        ptr = batched_data.ptr
+        ptr = batched_data.ptr.to(device)
 
         #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
         k_vcc_edges = [[[], []] for i in range(self.maxk)]
-        h_list = [self.atom_encoder(x).cuda()]
-        last = -1
-        offset = 0
+        h_list = [self.atom_encoder(x).to(device)]
         curr_l = 0
         j = 0
         rem = sum(k_vcc_edges_shape[0])
@@ -176,14 +189,14 @@ class GNN_node(torch.nn.Module):
         #print(k_vcc_edges)
         #return
         for layer in range(self.num_layer):
-            h = self.convs[layer](h_list[layer], k_vcc_edges).cuda().float()
+            h = self.convs[layer](h_list[layer], k_vcc_edges).float().to(device)
 
-            h = self.batch_norms[layer](h).cuda()
+            h = self.batch_norms[layer](h).to(device)
 
-            h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
+            h = F.dropout(F.relu(h), self.drop_ratio, training=self.training).to(device)
 
             if self.residual:
-                h += h_list[layer]
+                h += h_list[layer].to(device)
 
             h_list.append(h)
 
@@ -193,25 +206,25 @@ class GNN_node(torch.nn.Module):
         node_representation = 0
 
         if self.JK == "last":
-            node_representation = h_list[-1]
+            node_representation = h_list[-1].to(device)
         elif self.JK == "sum":
             for layer in range(self.num_layer):
-                node_representation += h_list[layer]
+                node_representation += h_list[layer].to(device)
 
 
-        return node_representation
+        return node_representation.to(device)
 
 
 ### Virtual GNN to generate node embedding
-class GNN_node_Virtualnode(torch.nn.Module):
+'''class GNN_node_Virtualnode(torch.nn.Module):
     """
     Output:
         node representations
     """
     def __init__(self, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
-        '''
-            emb_dim (int): node embedding dimensionality
-        '''
+        
+        #    emb_dim (int): node embedding dimensionality
+        
 
         super(GNN_node_Virtualnode, self).__init__()
         self.num_layer = num_layer
@@ -302,4 +315,4 @@ class GNN_node_Virtualnode(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    pass
+    pass'''
