@@ -50,7 +50,7 @@ class K_VCC_Conv(MessagePassing):
 
         msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0]))).to(device)
         for k in range(self.max_k):
-            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, torch.tensor(np.array(k_vcc_edges[k]), dtype=torch.long).to(device)).to(device)
+            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, k_vcc_edges[k].to(device)).to(device)
         alpha1 = torch.nn.Softmax(dim=0)(self.alpha).to(device)
         msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).to(device)
         new_embeddings1 = torch.sum((msgs_N_D_K.to(device)*alpha1.to(device)).to(device), dim=2).double().to(device)
@@ -172,9 +172,9 @@ class GNN_node(torch.nn.Module):
         k_vcc_edges = []
         for i in range(len(k_vcc_edges2)):
             if len(k_vcc_edges2[i][0]) == 0:
-                k_vcc_edges.append(torch.tensor([[], []]))
+                k_vcc_edges.append(torch.tensor([[], []], dtype=torch.long).cuda())
             else:
-                k_vcc_edges.append(torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]])), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]))), dim=0))
+                k_vcc_edges.append(torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]]), dtype=torch.long), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]), dtype=torch.long)), dim=0).cuda())
 
         #k_vcc_edges = [torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]])), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]))), dim=0) for i in range(1, 3)]
         #print(k_vcc_edges2)
