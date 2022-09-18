@@ -34,20 +34,20 @@ def add_vcc_data(graph):
     g_decomp = apxa.k_components(G)
     neigh = np.zeros((graph.num_nodes, graph.num_nodes, graph.num_nodes))
     for i in g_decomp:
-        comps = g_decomp.get(i).cuda()
+        comps = g_decomp.get(i)
         in_comps = list([])
-        for node in range(graph.num_nodes.cuda()):
+        for node in range(graph.num_nodes):
             ic = list([])
-            for comp in range(len(comps.cuda())):
-                if node in comps[comp].cuda():
+            for comp in range(len(comps)):
+                if node in comps[comp]:
                     ic.append(comp)
             in_comps.append(ic)
-        for n1 in range(graph.num_nodes.cuda()):
-            for nb in range(graph.num_nodes.cuda()):
-                if original_neigh[n1][nb].cuda() == 0:
+        for n1 in range(graph.num_nodes):
+            for nb in range(graph.num_nodes):
+                if original_neigh[n1][nb] == 0:
                     continue
-                for c in in_comps[nb].cuda():
-                    for n2 in comps[c].cuda():
+                for c in in_comps[nb]:
+                    for n2 in comps[c]:
                         if n1 == n2:
                             continue
                         neigh[i][n1][n2] += 1
@@ -79,7 +79,11 @@ def add_vcc_data(graph):
         #print(len(ids1))
         k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
         k_vcc_edges_shape.append(len(k_vcc_edges)-t)
-    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges)).to(device)
+
+    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges))
+    #print(graph.k_vcc_edges)
+    #print(torch.tensor(graph.k_vcc_edges))
+    #return
     graph.k_vcc_edges_shape = k_vcc_edges_shape
     graph = graph.to(device)
     return graph.to(device)

@@ -68,8 +68,8 @@ class GNN(torch.nn.Module):
         #device = 'cpu'
         #print(device)
 
-        h_node = self.gnn_node(batched_data).to(device)
-        h_graph = self.pool(h_node, batched_data.batch).to(device)
+        h_node = self.gnn_node(batched_data)
+        h_graph = self.pool(h_node, batched_data.batch)
 
         return self.graph_pred_linear(h_graph).to(device)
 
