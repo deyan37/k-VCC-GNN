@@ -25,8 +25,8 @@ def add_vcc_data(graph):
         G.add_node(i)
 
     original_neigh = np.zeros((graph.num_nodes, graph.num_nodes))
-    graph.edge_index = graph.edge_index.cuda()
-    for i in range(0, len(graph.edge_index[0].cuda()), 2):
+    #graph.edge_index = graph.edge_index.cuda()
+    for i in range(0, len(graph.edge_index[0]), 2):
         original_neigh[graph.edge_index[0][i]][graph.edge_index[1][i]] = 1
         original_neigh[graph.edge_index[1][i]][graph.edge_index[0][i]] = 1
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
@@ -80,32 +80,27 @@ def add_vcc_data(graph):
         k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
         k_vcc_edges_shape.append(len(k_vcc_edges)-t)
 
-    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges), dtype = torch.long)
+    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges), dtype = torch.long, device=torch.device('cuda'))
     #print(graph.k_vcc_edges)
     #print(torch.tensor(graph.k_vcc_edges))
     #return
     graph.k_vcc_edges_shape = k_vcc_edges_shape
-    graph = graph.to(device)
-    return graph.to(device)
+    return graph
 
 def train(model, device, loader, optimizer, task_type):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     #device = "cpu"
     #print(device)
     model.to(device)
-    model.cuda()
     model.train()
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
-        batch = batch.to(device)
-        model.to(device)
-        batch.x = batch.x.to(device)
         if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
             pass
         else:
             #print('*********************')
             #print('eho?')
-            pred = model(batch).to(device)
+            pred = model(batch)
             #print('*********************')
             #print('eho1')
             optimizer.zero_grad()
@@ -118,7 +113,7 @@ def train(model, device, loader, optimizer, task_type):
             else:
                 loss = reg_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
 
-            loss.cuda().backward()
+            loss.backward()
 
             optimizer.step()
 
@@ -132,18 +127,16 @@ def eval(model, device, loader, evaluator):
     model.eval()
     y_true = []
     y_pred = []
-    model.to(device)
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
-        batch.x = batch.x.to(device)
         if batch.x.shape[0] == 1:
             pass
         else:
             with torch.no_grad():
                 pred = model(batch).to(device)
 
-            y_true.append(batch.y.cuda().view(pred.cuda().shape).detach().to(device))
+            y_true.append(batch.y.cuda().view(pred.shape).detach().to(device))
             y_pred.append(pred.detach().to(device))
 
     y_true = torch.cat(y_true, dim = 0).to(device).numpy()
@@ -233,13 +226,13 @@ def main():
     #print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
     #print(args.num_layer)
     if args.gnn == 'gin':
-        model = GNN(gnn_type = 'gin', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gin', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gin-virtual':
-        model = GNN(gnn_type = 'gin', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gin', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     elif args.gnn == 'gcn':
-        model = GNN(gnn_type = 'gcn', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gcn', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gcn-virtual':
-        model = GNN(gnn_type = 'gcn', maxk=5, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gcn', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     else:
         raise ValueError('Invalid GNN type')
 

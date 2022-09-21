@@ -145,9 +145,9 @@ class GNN_node(torch.nn.Module):
         x, edge_index, edge_attr, batch = batched_data.x.to(device), batched_data.edge_index.to(device), batched_data.edge_attr.to(device), batched_data.batch.to(device)
         k_vcc_edges_shape = batched_data.k_vcc_edges_shape
         ptr = batched_data.ptr.to(device)
-        batched_k_vcc_edges = batched_data.k_vcc_edges.cuda()
+        batched_k_vcc_edges = batched_data.k_vcc_edges
         #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
-        k_vcc_edges2 = [[[], []] for i in range(self.maxk)]
+        #k_vcc_edges2 = [[[], []] for i in range(self.maxk)]
         h_list = [self.atom_encoder(x).to(device)]
         curr_l = 0
         j = 0
@@ -155,15 +155,18 @@ class GNN_node(torch.nn.Module):
         for i in range(len(batched_k_vcc_edges)):
             if rem == 0:
                 j += 1
-                rem = sum(k_vcc_edges_shape[j].cuda())
+                rem = sum(k_vcc_edges_shape[j])
             batched_k_vcc_edges[i] += ptr[j].cuda()
-        edges_K_BS = [[torch.tensor([[], []], dtype=torch.long).cuda()]*batched_data.num_graphs for i in range(self.maxk)]
+        edges_K_BS = [[torch.tensor([[], []], dtype=torch.long, device=torch.device('cuda'))]*batched_data.num_graphs for i in range(self.maxk)]
         for i in range(len(k_vcc_edges_shape)):
             c_shape = k_vcc_edges_shape[i]
             k = 0
             for shape1 in c_shape:
                 curr_r = curr_l + shape1
                 k += 1
+                #print(k, i)
+                #print(len(edges_K_BS))
+                #print(len(edges_K_BS[k]))
                 edges_K_BS[k][i] = batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2)).cuda()
                 #k_vcc_edges2[k][0].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0])
                 #k_vcc_edges2[k][1].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1])
@@ -220,11 +223,11 @@ class GNN_node(torch.nn.Module):
             if self.residual:
                 h += h_list[layer].to(device)
 
-            h_list.append(h.cuda())
+            h_list.append(h)
 
             if self.residual:
-                h += h_list[self.num_layer-1].cuda()
-                h_list.append(h.cuda())
+                h += h_list[self.num_layer-1]
+                h_list.append(h)
         node_representation = 0
 
         if self.JK == "last":
@@ -234,7 +237,7 @@ class GNN_node(torch.nn.Module):
                 node_representation += h_list[layer].to(device)
 
 
-        return node_representation.to(device)
+        return node_representation
 
 
 ### Virtual GNN to generate node embedding
