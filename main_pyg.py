@@ -80,7 +80,7 @@ def add_vcc_data(graph):
         k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
         k_vcc_edges_shape.append(len(k_vcc_edges)-t)
 
-    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges))
+    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges), dtype = torch.long)
     #print(graph.k_vcc_edges)
     #print(torch.tensor(graph.k_vcc_edges))
     #return

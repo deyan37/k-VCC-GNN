@@ -145,7 +145,7 @@ class GNN_node(torch.nn.Module):
         x, edge_index, edge_attr, batch = batched_data.x.to(device), batched_data.edge_index.to(device), batched_data.edge_attr.to(device), batched_data.batch.to(device)
         k_vcc_edges_shape = batched_data.k_vcc_edges_shape
         ptr = batched_data.ptr.to(device)
-        batched_k_vcc_edges = np.array(batched_data.k_vcc_edges.cpu())
+        batched_k_vcc_edges = batched_data.k_vcc_edges.cuda()
         #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
         k_vcc_edges2 = [[[], []] for i in range(self.maxk)]
         h_list = [self.atom_encoder(x).to(device)]
@@ -157,24 +157,29 @@ class GNN_node(torch.nn.Module):
                 j += 1
                 rem = sum(k_vcc_edges_shape[j].cuda())
             batched_k_vcc_edges[i] += ptr[j].cuda()
-        for c_shape in k_vcc_edges_shape:
+        edges_K_BS = [[torch.tensor([[], []], dtype=torch.long).cuda()]*batched_data.num_graphs for i in range(self.maxk)]
+        for i in range(len(k_vcc_edges_shape)):
+            c_shape = k_vcc_edges_shape[i]
             k = 0
             for shape1 in c_shape:
                 curr_r = curr_l + shape1
                 k += 1
-                k_vcc_edges2[k][0].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0])
-                k_vcc_edges2[k][1].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1])
+                edges_K_BS[k][i] = batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2)).cuda()
+                #k_vcc_edges2[k][0].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0])
+                #k_vcc_edges2[k][1].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1])
                 curr_l = curr_r
-        for i in range(len(k_vcc_edges2)):
-            print(len(k_vcc_edges2[i][0]))
+        #for i in range(len(k_vcc_edges2)):
+        #    print(len(k_vcc_edges2[i][0]))
+
         #print([x for x in k_vcc_edges2[0][0]])
         #print([x for x in k_vcc_edges2[1][0]])
-        k_vcc_edges = []
+        '''k_vcc_edges = []
         for i in range(len(k_vcc_edges2)):
             if len(k_vcc_edges2[i][0]) == 0:
                 k_vcc_edges.append(torch.tensor([[], []], dtype=torch.long).cuda())
             else:
                 k_vcc_edges.append(torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]]), dtype=torch.long), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]), dtype=torch.long)), dim=0).cuda())
+        '''
 
         #k_vcc_edges = [torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]])), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]))), dim=0) for i in range(1, 3)]
         #print(k_vcc_edges2)
@@ -202,6 +207,9 @@ class GNN_node(torch.nn.Module):
         #print('&&&&&&&&&&&&&&&&&&&&&&&&&&&')
         #print(k_vcc_edges)
         #return
+
+        k_vcc_edges = [torch.hstack([edges_K_BS[k][i] for i in range(batched_data.num_graphs)]) for k in range(self.maxk)]
+        #print(k_vcc_edges)
         for layer in range(self.num_layer):
             h = self.convs[layer](h_list[layer], k_vcc_edges).float().to(device)
 
