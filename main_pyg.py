@@ -143,8 +143,8 @@ def eval(model, device, loader, evaluator):
             y_true.append(batch.y.cuda().view(pred.shape).detach().to(device))
             y_pred.append(pred.detach().to(device))
 
-    y_true = torch.cat(y_true, dim = 0).numpy()
-    y_pred = torch.cat(y_pred, dim = 0).numpy()
+    y_true = torch.cat(y_true, dim = 0).cpu().numpy()
+    y_pred = torch.cat(y_pred, dim = 0).cpu().numpy()
 
     input_dict = {"y_true": y_true, "y_pred": y_pred}
 
