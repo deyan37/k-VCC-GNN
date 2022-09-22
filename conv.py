@@ -41,20 +41,20 @@ class K_VCC_Conv(MessagePassing):
 
         self.wrapped_conv_layer = wrapped_conv_layer.cuda()
         self.max_k = max_k
-        self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k)).cuda())
+        self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k), device=torch.device('cuda')))
 
     def forward(self, old_embeddings, k_vcc_edges):
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         #device = 'cpu'
         #print(device)
 
-        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0]))).to(device)
+        msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0])), device=torch.device('cuda'))
         for k in range(self.max_k):
             msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, k_vcc_edges[k].to(device)).to(device)
         alpha1 = torch.nn.Softmax(dim=0)(self.alpha).to(device)
         msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).to(device)
         new_embeddings1 = torch.sum((msgs_N_D_K.to(device)*alpha1.to(device)).to(device), dim=2).double().to(device)
-        return new_embeddings1.to(device)
+        return new_embeddings1
 
 ### GCN convolution along the graph structure
 '''class GCNConv(MessagePassing):
@@ -156,7 +156,7 @@ class GNN_node(torch.nn.Module):
             if rem == 0:
                 j += 1
                 rem = sum(k_vcc_edges_shape[j])
-            batched_k_vcc_edges[i] += ptr[j].cuda()
+            batched_k_vcc_edges[i] += ptr[j]
         edges_K_BS = [[torch.tensor([[], []], dtype=torch.long, device=torch.device('cuda'))]*batched_data.num_graphs for i in range(self.maxk)]
         for i in range(len(k_vcc_edges_shape)):
             c_shape = k_vcc_edges_shape[i]
@@ -167,7 +167,7 @@ class GNN_node(torch.nn.Module):
                 #print(k, i)
                 #print(len(edges_K_BS))
                 #print(len(edges_K_BS[k]))
-                edges_K_BS[k][i] = batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2)).cuda()
+                edges_K_BS[k][i] = batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))
                 #k_vcc_edges2[k][0].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0])
                 #k_vcc_edges2[k][1].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1])
                 curr_l = curr_r
@@ -221,7 +221,7 @@ class GNN_node(torch.nn.Module):
             h = F.dropout(F.relu(h), self.drop_ratio, training=self.training).to(device)
 
             if self.residual:
-                h += h_list[layer].to(device)
+                h += h_list[layer]
 
             h_list.append(h)
 
@@ -231,10 +231,10 @@ class GNN_node(torch.nn.Module):
         node_representation = 0
 
         if self.JK == "last":
-            node_representation = h_list[-1].to(device)
+            node_representation = h_list[-1]
         elif self.JK == "sum":
             for layer in range(self.num_layer):
-                node_representation += h_list[layer].to(device)
+                node_representation += h_list[layer]
 
 
         return node_representation.cuda()
