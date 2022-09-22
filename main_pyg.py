@@ -92,6 +92,8 @@ def train(model, device, loader, optimizer, task_type):
     #device = "cpu"
     #print(device)
     model.to(device)
+    torch.backends.cudnn.benchmark = True
+
     model.train()
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
         batch = batch.to(device)
@@ -124,6 +126,8 @@ def eval(model, device, loader, evaluator):
     #print(device)
 
     model.to(device)
+    torch.backends.cudnn.benchmark = True
+
     model.eval()
     y_true = []
     y_pred = []

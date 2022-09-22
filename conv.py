@@ -237,7 +237,7 @@ class GNN_node(torch.nn.Module):
                 node_representation += h_list[layer].to(device)
 
 
-        return node_representation
+        return node_representation.cuda()
 
 
 ### Virtual GNN to generate node embedding
