@@ -266,16 +266,16 @@ def main():
 
         print({'Train': train_perf, 'Validation': valid_perf, 'Test': test_perf})
 
-        train_curve.append(train_perf[dataset.eval_metric].cuda())
-        valid_curve.append(valid_perf[dataset.eval_metric].cuda())
-        test_curve.append(test_perf[dataset.eval_metric].cuda())
+        train_curve.append(train_perf[dataset.eval_metric])
+        valid_curve.append(valid_perf[dataset.eval_metric])
+        test_curve.append(test_perf[dataset.eval_metric])
 
     if 'classification' in dataset.task_type:
         best_val_epoch = np.argmax(np.array(valid_curve))
-        best_train = max(train_curve).cuda()
+        best_train = max(train_curve)
     else:
         best_val_epoch = np.argmin(np.array(valid_curve))
-        best_train = min(train_curve).cuda()
+        best_train = min(train_curve)
 
     print('Finished training!')
     print('Best validation score: {}'.format(valid_curve[best_val_epoch]))
