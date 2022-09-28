@@ -2,7 +2,8 @@ import torch
 from torch_geometric.loader import DataLoader
 import torch.optim as optim
 import torch.nn.functional as F
-from gnn import GNN#, GNN_FA, GNN_TYPE
+from gnn import GNN
+#, GNN_FA, GNN_TYPE
 
 from tqdm import tqdm
 import argparse
@@ -13,6 +14,8 @@ from networkx.algorithms import approximation as apxa
 import networkx as nx
 
 from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
+
+from config_vcc_gnn import MAX_K
 
 cls_criterion = torch.nn.BCEWithLogitsLoss()
 reg_criterion = torch.nn.MSELoss()
@@ -32,8 +35,11 @@ def add_vcc_data(graph):
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
 
     g_decomp = apxa.k_components(G)
-    neigh = np.zeros((graph.num_nodes, graph.num_nodes, graph.num_nodes))
+    neigh = np.zeros((MAX_K, graph.num_nodes, graph.num_nodes))
     for i in g_decomp:
+        if i >= MAX_K:
+            break
+
         comps = g_decomp.get(i)
         in_comps = list([])
         for node in range(graph.num_nodes):
@@ -51,40 +57,17 @@ def add_vcc_data(graph):
                         if n1 == n2:
                             continue
                         neigh[i][n1][n2] += 1
-        #print(neigh)
-        '''
-        for t in comps:
-            for n1 in t:
-                for n2 in t:
-                    if n1 != n2:
-                        neigh[i][n1][n2] += 1
-        '''
-    k_vcc_matrix = [neigh[i+1] for i in range(0, len(g_decomp))]
-    k_vcc_edges = np.array([])
-    k_vcc_edges_shape = []
-    #maxk
-    #print('+++++++++++++++')
-    #print(k_vcc_matrix)
-    for i in range(3):
-        ids1 = []
-        ids2 = []
-        if len(k_vcc_matrix) <= i:
-            continue
-        for j in range(0, len(k_vcc_matrix[i])):
-            for l in range(j + 1, len(k_vcc_matrix[i][j])):
-                for cnt in range(int(k_vcc_matrix[i][j][l])):
-                    ids1.append(j)
-                    ids2.append(l)
-        t = len(k_vcc_edges)
-        #print(len(ids1))
-        k_vcc_edges = np.append(k_vcc_edges, np.array([np.concatenate((ids1, ids2)), np.concatenate((ids2, ids1))]).flatten())
-        k_vcc_edges_shape.append(len(k_vcc_edges)-t)
 
-    graph.k_vcc_edges = torch.tensor(np.array(k_vcc_edges), dtype = torch.long, device=torch.device('cuda'))
-    #print(graph.k_vcc_edges)
-    #print(torch.tensor(graph.k_vcc_edges))
-    #return
-    graph.k_vcc_edges_shape = k_vcc_edges_shape
+    # We need to transpose all data, because the matching size dimensions 
+    # should be [1:], while dimension 0 can be of arbitrary size.
+    # We keep a complete graph as the "new" edges, and we also store the
+    # weight for each of the edges.
+    graph.edge_weight = torch.flatten(torch.Tensor(neigh), start_dim=1).T
+    seq0toN = torch.arange(graph.num_nodes, device=device)
+    complete_edges = torch.cartesian_prod(seq0toN, seq0toN).T
+    graph.k_vcc_edges = torch.transpose(
+        complete_edges[None, :, :].repeat(MAX_K, 1, 1), 0, 2
+    )
     return graph
 
 def train(model, device, loader, optimizer, task_type):
@@ -230,13 +213,13 @@ def main():
     #print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
     #print(args.num_layer)
     if args.gnn == 'gin':
-        model = GNN(gnn_type = 'gin', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gin-virtual':
-        model = GNN(gnn_type = 'gin', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     elif args.gnn == 'gcn':
-        model = GNN(gnn_type = 'gcn', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gcn', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
     elif args.gnn == 'gcn-virtual':
-        model = GNN(gnn_type = 'gcn', maxk=4, num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
+        model = GNN(gnn_type = 'gcn', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     else:
         raise ValueError('Invalid GNN type')
 

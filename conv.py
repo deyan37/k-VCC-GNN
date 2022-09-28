@@ -2,11 +2,13 @@ import torch
 from torch_geometric.nn import MessagePassing
 import torch.nn.functional as F
 from torch_geometric.nn import global_mean_pool, global_add_pool
-from torch_geometric.nn import GINConv as NodeGINConv
+from torch_geometric.nn import GCNConv
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.utils import degree
 import numpy as np
 import math
+
+from config_vcc_gnn import MAX_K
 
 ### GIN convolution along the graph structure
 '''class GINConv(MessagePassing):
@@ -43,16 +45,19 @@ class K_VCC_Conv(MessagePassing):
         self.max_k = max_k
         self.alpha = torch.nn.Parameter(torch.tensor(np.zeros(max_k), device=torch.device('cuda')))
 
-    def forward(self, old_embeddings, k_vcc_edges):
+    def forward(self, old_embeddings, edges__K_2_M, weights__K_M):
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        #device = 'cpu'
-        #print(device)
 
         msgs_K_N_D = torch.zeros((self.max_k, len(old_embeddings), len(old_embeddings[0])), device=torch.device('cuda'))
         for k in range(self.max_k):
-            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(old_embeddings, k_vcc_edges[k].to(device)).to(device)
-        alpha1 = torch.nn.Softmax(dim=0)(self.alpha).to(device)
-        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0).to(device)
+            msgs_K_N_D[k, :, :] = self.wrapped_conv_layer(
+                old_embeddings, 
+                edges__K_2_M[k],
+                weights__K_M[k]
+            )
+
+        alpha1 = torch.nn.Softmax(dim=0)(self.alpha)
+        msgs_N_D_K = msgs_K_N_D.permute(1, 2, 0)
         new_embeddings1 = torch.sum((msgs_N_D_K.to(device)*alpha1.to(device)).to(device), dim=2).double().to(device)
         return new_embeddings1
 
@@ -93,7 +98,7 @@ class GNN_node(torch.nn.Module):
     Output:
         node representations
     """
-    def __init__(self, maxk, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
+    def __init__(self, num_layer, emb_dim, maxk=MAX_K, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
         '''
             emb_dim (int): node embedding dimensionality
             num_layer (int): number of GNN message passing layers
@@ -118,13 +123,14 @@ class GNN_node(torch.nn.Module):
         self.atom_encoder = AtomEncoder(emb_dim).cuda()
 
         ###List of GNNs
-        self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True).to(device)
+        #self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True).to(device)
         self.convs = torch.nn.ModuleList().to(device)
         self.batch_norms = torch.nn.ModuleList().to(device)
 
         for layer in range(num_layer):
-            if gnn_type == 'gin':
-                self.convs.append(K_VCC_Conv(maxk, NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim).to(device), torch.nn.BatchNorm1d(2*emb_dim).to(device), torch.nn.ReLU().to(device), torch.nn.Linear(2*emb_dim, emb_dim).to(device)), train_eps=True).to(device)).to(device))
+            #if gnn_type == 'gin':
+            #  self.convs.append(K_VCC_Conv(maxk, GCNConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim).to(device), torch.nn.BatchNorm1d(2*emb_dim).to(device), torch.nn.ReLU().to(device), torch.nn.Linear(2*emb_dim, emb_dim).to(device)), train_eps=True).to(device)).to(device))
+            self.convs.append(K_VCC_Conv(maxk, GCNConv(emb_dim, emb_dim).to(device)).to(device))
             '''elif gnn_type == 'gcn':
                 self.convs.append(GCNConv(emb_dim))
             else:
@@ -133,88 +139,35 @@ class GNN_node(torch.nn.Module):
             self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).to(device))
         self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).to(device))
         #self.convs.append(GINConv(emb_dim).cuda())
+
     def forward(self, batched_data):
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        #device = 'cpu'
-        #print(device)
 
         '''print(torch.cuda.get_device_name(0))
         print('Memory Usage:')
         print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
         print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')'''
         x, edge_index, edge_attr, batch = batched_data.x.to(device), batched_data.edge_index.to(device), batched_data.edge_attr.to(device), batched_data.batch.to(device)
-        k_vcc_edges_shape = batched_data.k_vcc_edges_shape
-        ptr = batched_data.ptr.to(device)
-        batched_k_vcc_edges = batched_data.k_vcc_edges
-        #k_vcc_edges = [np.array([[], []]) for i in range(self.maxk)]
-        #k_vcc_edges2 = [[[], []] for i in range(self.maxk)]
+        ptr = batched_data.ptr
+        batched_k_vcc_edges__K_2_sumNxN = torch.transpose(batched_data.k_vcc_edges, 0, 2)
+        weights__K_sumNxN = batched_data.edge_weight.T
+
+        # Embeddings list
         h_list = [self.atom_encoder(x).to(device)]
+
         curr_l = 0
-        j = 0
-        rem = sum(k_vcc_edges_shape[0])
-        for i in range(len(batched_k_vcc_edges)):
-            if rem == 0:
-                j += 1
-                rem = sum(k_vcc_edges_shape[j])
-            batched_k_vcc_edges[i] += ptr[j]
-        edges_K_BS = [[torch.tensor([[], []], dtype=torch.long, device=torch.device('cuda'))]*batched_data.num_graphs for i in range(self.maxk)]
-        for i in range(len(k_vcc_edges_shape)):
-            c_shape = k_vcc_edges_shape[i]
-            k = 0
-            for shape1 in c_shape:
-                curr_r = curr_l + shape1
-                k += 1
-                #print(k, i)
-                #print(len(edges_K_BS))
-                #print(len(edges_K_BS[k]))
-                edges_K_BS[k][i] = batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))
-                #k_vcc_edges2[k][0].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[0])
-                #k_vcc_edges2[k][1].append(batched_k_vcc_edges[curr_l:curr_r].reshape(2, int(shape1/2))[1])
-                curr_l = curr_r
-        #for i in range(len(k_vcc_edges2)):
-        #    print(len(k_vcc_edges2[i][0]))
+        for last_offset, offset in zip(ptr, ptr[1:]):
+            N = offset - last_offset
+            curr_r = curr_l + N * N
+            batched_k_vcc_edges__K_2_sumNxN[:, :, curr_l:curr_r] += last_offset
+            curr_l = curr_r
 
-        #print([x for x in k_vcc_edges2[0][0]])
-        #print([x for x in k_vcc_edges2[1][0]])
-        '''k_vcc_edges = []
-        for i in range(len(k_vcc_edges2)):
-            if len(k_vcc_edges2[i][0]) == 0:
-                k_vcc_edges.append(torch.tensor([[], []], dtype=torch.long).cuda())
-            else:
-                k_vcc_edges.append(torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]]), dtype=torch.long), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]), dtype=torch.long)), dim=0).cuda())
-        '''
-
-        #k_vcc_edges = [torch.stack((torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][0]])), torch.tensor(np.concatenate([x for x in k_vcc_edges2[i][1]]))), dim=0) for i in range(1, 3)]
-        #print(k_vcc_edges2)
-        #print(k_vcc_edges)
-        #return
-            #print(c_shape)
-
-        '''for j in range(len(batched_data.k_vcc_edges_shape)):
-            shape1 = batched_data.k_vcc_edges_shape[j]
-            for k in range(len(shape1)):
-                shape2 = shape1[k]
-                #for i in range(shape2):
-                #    batched_data.k_vcc_edges[last+i+1] += offset
-                edges1 = np.array([batched_data.k_vcc_edges[int(last+i+1)].cpu() for i in range(int(shape2))]).reshape((2, int(shape2/2)))
-                k_vcc_edges[k+1] = np.array([np.concatenate((k_vcc_edges[k+1][0], edges1[0]), axis=None), np.concatenate((k_vcc_edges[k+1][1], edges1[1]), axis=None)])
-                last += shape2
-            offset = batched_data.ptr[j+1]
-        '''
-        #print('&&&&&&&&&&&&&&&&&&&&&&&&&&&')
-        #print(k_vcc_edges1[1][0])
-        #print(k_vcc_edges1[0][0])
-        #print(len(k_vcc_edges1[1][0]))
-        #print(len(k_vcc_edges1[1][1]))
-        #print([np.array(k_vcc_edges1[i], dtype=np.float) for i in range(self.maxk)])
-        #print('&&&&&&&&&&&&&&&&&&&&&&&&&&&')
-        #print(k_vcc_edges)
-        #return
-
-        k_vcc_edges = [torch.hstack([edges_K_BS[k][i] for i in range(batched_data.num_graphs)]) for k in range(self.maxk)]
-        #print(k_vcc_edges)
         for layer in range(self.num_layer):
-            h = self.convs[layer](h_list[layer], k_vcc_edges).float().to(device)
+            h = self.convs[layer](
+                h_list[layer], 
+                batched_k_vcc_edges__K_2_sumNxN,
+                weights__K_sumNxN
+            ).float().to(device)
 
             h = self.batch_norms[layer](h).to(device)
 

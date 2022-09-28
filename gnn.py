@@ -10,9 +10,10 @@ from conv import GNN_node#, GNN_node_Virtualnode
 
 from torch_scatter import scatter_mean
 
+
 class GNN(torch.nn.Module):
 
-    def __init__(self, maxk, num_tasks, num_layer = 5, emb_dim = 300,
+    def __init__(self, num_tasks, num_layer = 5, emb_dim = 300,
                     gnn_type = 'gin', virtual_node = True, residual = False, drop_ratio = 0.5, JK = "last", graph_pooling = "mean"):
         '''
             num_tasks (int): number of labels to be predicted
@@ -41,7 +42,7 @@ class GNN(torch.nn.Module):
         if virtual_node:
             self.gnn_node = GNN_node_Virtualnode(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type).to(device)
         else:
-            self.gnn_node = GNN_node(maxk, num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type).to(device)
+            self.gnn_node = GNN_node(num_layer, emb_dim, JK = JK, drop_ratio = drop_ratio, residual = residual, gnn_type = gnn_type).to(device)
 
 
         ### Pooling function to generate whole-graph embeddings
