@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from gnn import GNN
 #, GNN_FA, GNN_TYPE
 
+import matplotlib.pyplot as plt
+
 from tqdm import tqdm
 import argparse
 import time
@@ -263,6 +265,18 @@ def main():
     print('Finished training!')
     print('Best validation score: {}'.format(valid_curve[best_val_epoch]))
     print('Test score: {}'.format(test_curve[best_val_epoch]))
+    print(test_curve)
+
+    #plt.style.use('seaborn')
+    plt.plot([i for i in range(1, len(test_curve)+1)], test_curve, label='Test accuracy')
+    plt.plot([i for i in range(1, len(test_curve)+1)], validation_curve, label='Validation accuracy')
+    plt.ylabel('auroc', fontsize=14)
+    plt.xlabel('Epoch', fontsize=14)
+    plt.title('Accuracy', fontsize=18, y=1.03)
+    plt.legend()
+    plt.ylim(0, 40)
+
+
 
     if not args.filename == '':
         torch.save({'Val': valid_curve[best_val_epoch], 'Test': test_curve[best_val_epoch], 'Train': train_curve[best_val_epoch], 'BestTrain': best_train}, args.filename)
