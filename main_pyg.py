@@ -275,7 +275,7 @@ def main():
     plt.title('Accuracy', fontsize=18, y=1.03)
     plt.legend()
     plt.ylim(0, 40)
-
+    plt.show()
 
 
     if not args.filename == '':
