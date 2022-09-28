@@ -269,7 +269,7 @@ def main():
 
     #plt.style.use('seaborn')
     plt.plot([i for i in range(1, len(test_curve)+1)], test_curve, label='Test accuracy')
-    plt.plot([i for i in range(1, len(test_curve)+1)], validation_curve, label='Validation accuracy')
+    plt.plot([i for i in range(1, len(valid_curve)+1)], valid_curve, label='Validation accuracy')
     plt.ylabel('auroc', fontsize=14)
     plt.xlabel('Epoch', fontsize=14)
     plt.title('Accuracy', fontsize=18, y=1.03)
