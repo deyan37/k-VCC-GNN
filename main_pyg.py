@@ -2,6 +2,7 @@ import torch
 from torch_geometric.loader import DataLoader
 import torch.optim as optim
 import torch.nn.functional as F
+from matplotlib import pyplot
 from gnn import GNN
 from mlxtend.plotting import plot_learning_curves
 #, GNN_FA, GNN_TYPE
