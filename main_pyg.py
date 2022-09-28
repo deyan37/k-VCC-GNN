@@ -3,6 +3,7 @@ from torch_geometric.loader import DataLoader
 import torch.optim as optim
 import torch.nn.functional as F
 from gnn import GNN
+from mlxtend.plotting import plot_learning_curves
 #, GNN_FA, GNN_TYPE
 
 import matplotlib.pyplot as plt
@@ -267,16 +268,12 @@ def main():
     print('Test score: {}'.format(test_curve[best_val_epoch]))
     print(test_curve)
 
-    #plt.style.use('seaborn')
-    plt.plot([i for i in range(1, len(test_curve)+1)], test_curve, label='Test accuracy')
-    plt.plot([i for i in range(1, len(valid_curve)+1)], valid_curve, label='Validation accuracy')
-    plt.ylabel('auroc', fontsize=14)
-    plt.xlabel('Epoch', fontsize=14)
-    plt.title('Accuracy', fontsize=18, y=1.03)
-    plt.legend()
-    plt.ylim(0, 40)
-    plt.show()
-
+    fig = pyplot.figure()
+    ax = fig.add_subplot(111)
+    ax.set_ylim(0, 1)
+    epochs = np.array([i for i in range(1, len(valid_curve)+1)])
+    pyplot.plot(epochs, np.array(valid_curve))
+    pyplot.show()
 
     if not args.filename == '':
         torch.save({'Val': valid_curve[best_val_epoch], 'Test': test_curve[best_val_epoch], 'Train': train_curve[best_val_epoch], 'BestTrain': best_train}, args.filename)
