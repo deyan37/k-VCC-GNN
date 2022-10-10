@@ -258,15 +258,16 @@ def main():
     if 'classification' in dataset.task_type:
         best_val_epoch = np.argmax(np.array(valid_curve))
         best_train = max(train_curve)
+        average_train = sum(train_curve)/len(train_curve)
     else:
         best_val_epoch = np.argmin(np.array(valid_curve))
         best_train = min(train_curve)
+        average_train = average(train_curve)/len(train_curve)
 
     print('Finished training!')
     print('Best validation score: {}'.format(valid_curve[best_val_epoch]))
     print('Test score: {}'.format(test_curve[best_val_epoch]))
-    print(test_curve)
-
+    #print(test_curve)
 
     if not args.filename == '':
         torch.save({'Val': valid_curve[best_val_epoch], 'Test': test_curve[best_val_epoch], 'Train': train_curve[best_val_epoch], 'BestTrain': best_train}, args.filename)
