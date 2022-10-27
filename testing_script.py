@@ -3,14 +3,14 @@ import os
 import math
 
 all_datasets = ["ogbg-molbace", "ogbg-moltox21", "ogbg-molbbbp", "ogbg-molclintox", "ogbg-molmuv", "ogbg-molsider", "ogbg-moltoxcast"]
-datasets = ["ogbg-moltox21"]
+datasets = ["ogbg-molbace"]
 results = ""
 for d in datasets:
     sum = 0
     values = list()
     for i in range(10):
         filename = "output" + str(i) + ".txt"
-        os.system("python main_pyg.py --gnn gin --dataset " + d + " --filename alo --emb_dim 300 --epochs 100 --batch_size 32 >> "+filename)
+        os.system("python main_pyg.py --gnn gin --dataset " + d + " --filename alo --emb_dim 128 --epochs 100 --batch_size 32 >> "+filename)
 
         with open(filename) as f:
             lines = f.readlines()
