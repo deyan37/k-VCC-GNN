@@ -10,7 +10,7 @@ for d in datasets:
     values = list()
     for i in range(10):
         filename = "output" + str(i) + ".txt"
-        os.system("python main_pyg.py --gnn gin --dataset " + d + " --filename alo --emb_dim 128 --epochs 100 --batch_size 32 >> "+filename)
+        os.system("python main_pyg.py --gnn gin --dataset " + d + " --filename alo --emb_dim 32 --epochs 100 --batch_size 32 >> "+filename)
 
         with open(filename) as f:
             lines = f.readlines()
