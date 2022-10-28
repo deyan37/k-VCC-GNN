@@ -5,6 +5,8 @@ from torch_geometric.nn import global_mean_pool, global_add_pool
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from encoders import EdgeEncoder, NodeEncoder
 from torch_geometric.utils import degree
+from torch_geometric.nn import GINConv as NodeGINConv
+import numpy as np
 
 from config_vcc_gnn import MAX_K
 import math
@@ -104,7 +106,7 @@ class GNN_node(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.batch_norms = torch.nn.ModuleList()
 
-        for layer in range(num_layer):
+        for layer in range(num_layer-1):
             if gnn_type == 'gin':
                 self.convs.append(GINConv(emb_dim).cuda())
             elif gnn_type == 'gcn':
@@ -113,6 +115,8 @@ class GNN_node(torch.nn.Module):
                 raise ValueError('Undefined GNN type called {}'.format(gnn_type))
 
             self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).cuda())
+        self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True).cuda()
+        self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).cuda())
 
     def forward(self, batched_data):
         x, edge_index, edge_attr, batch = batched_data.x.cuda(), batched_data.edge_index.cuda(), batched_data.edge_attr.cuda(), batched_data.batch.cuda()
@@ -137,23 +141,41 @@ class GNN_node(torch.nn.Module):
 
         x1[mask2_nodes] = self.node_encoder(x[mask2_nodes])
         x1[mask1_nodes] = self.atom_encoder(x[mask1_nodes])
+
         ### computing input node embedding
         h_list = [x1]
+
+        fully_adj = torch.zeros((len(x), len(x))).cuda()
+
+        last = 0
+        for i in range(0, batched_data.ptr.__len__()):
+            ids = (batched_data.batch == i).nonzero(as_tuple=True)
+            #print(ids[0])
+            fully_adj[(ids[0], ids[0])] = 1
+
+        edge_index_fa = fully_adj.nonzero().t().contiguous().cuda()
+
         for layer in range(self.num_layer):
 
-            h = self.convs[layer](h_list[layer], edge_index, edge_attr, mask1_edges, mask2_edges)
-            h = self.batch_norms[layer](h)
-
             if layer == self.num_layer - 1:
-                #remove relu for the last layer
-                h = F.dropout(h, self.drop_ratio, training = self.training)
+                h = self.fa_conv(h_list[layer], edge_index_fa)
+                h = self.batch_norms[layer](h)
+                h = F.dropout(h, self.drop_ratio, training=self.training)
+                if self.residual:
+                    h += h_list[layer]
+                h_list.append(h)
             else:
-                h = F.dropout(F.relu(h), self.drop_ratio, training = self.training)
+                h = self.convs[layer](h_list[layer], edge_index, edge_attr, mask1_edges, mask2_edges)
+                h = self.batch_norms[layer](h)
 
-            if self.residual:
-                h += h_list[layer]
+                h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
 
-            h_list.append(h)
+                if self.residual:
+                    h += h_list[layer]
+
+                h_list.append(h)
+
+
 
         ### Different implementations of Jk-concat
         if self.JK == "last":
