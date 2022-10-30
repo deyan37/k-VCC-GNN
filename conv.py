@@ -148,12 +148,19 @@ class GNN_node(torch.nn.Module):
         fully_adj = torch.zeros((len(x), len(x))).cuda()
 
         last = 0
+        edge_index_list = []
         for i in range(0, batched_data.ptr.__len__()):
             ids = (batched_data.batch == i).nonzero(as_tuple=True)
             #print(ids[0])
-            fully_adj[(ids[0], ids[0])] = 1
-
-        edge_index_fa = fully_adj.nonzero().t().contiguous().cuda()
+            #print(ids[0])
+            #print(torch.combinations(ids[0], with_replacement=True).cuda())
+            #print(torch.index_select(torch.combinations(ids[0], with_replacement=False).cuda(), 1, torch.tensor([1, 0]).cuda()))
+            edge_index_list.append(torch.combinations(ids[0], with_replacement=True).cuda())
+            edge_index_list.append(torch.index_select(torch.combinations(ids[0], with_replacement=False).cuda(), 1, torch.tensor([1, 0]).cuda()))
+            #fully_adj[(ids[0], ids[0])] = 1
+        #print(torch.vstack(edge_index_list))
+        #print(torch.vstack(edge_index_list).t())
+        edge_index_fa = torch.vstack(edge_index_list).t()
 
         for layer in range(self.num_layer):
 
