@@ -25,8 +25,6 @@ def add_vcc_data(graph):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     #device = "cpu"
     #print(device)
-    graph.original_cnt_edges = len(graph.edge_attr)
-    graph.original_cnt_nodes = graph.num_nodes
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
@@ -39,55 +37,26 @@ def add_vcc_data(graph):
         G.add_edge(int(graph.edge_index[0][i]), int(graph.edge_index[1][i]))
 
     g_decomp = apxa.k_components(G)
-    new_nodes_count = 0
-    for i in g_decomp:
-        new_nodes_count += len(g_decomp.get(i))
-
-    neigh = np.zeros((MAX_K, graph.num_nodes + new_nodes_count, graph.num_nodes + new_nodes_count))
-
-    new_nodes_count = 0
 
     #print(graph.edge_index)
     #print(graph.edge_attr)
     graph.edge_index = graph.edge_index.cuda()
     graph.edge_attr = graph.edge_attr.cuda()
-    #print(graph.x)
-    max_node = 0
-    for i in range(len(graph.edge_index[0])):
-        max_node = max(max_node, graph.edge_index[0][i])
-    #exit()
-    for i in g_decomp:
-        for comp in g_decomp.get(i):
-            idx = graph.num_nodes
-            #print(idx)
-            graph.x = torch.vstack((graph.x.cuda(), torch.tensor([[i]*9]).cuda())).cuda()
-            graph.num_nodes += 1
-            for v in comp:
-                graph.edge_index = torch.hstack((graph.edge_index.cuda(), torch.tensor([[v, idx], [idx, v]], dtype=torch.long).cuda())).cuda()
-                graph.edge_attr = torch.vstack((graph.edge_attr.cuda(), torch.tensor([[i, i, i], [i, i, i]], dtype=torch.long).cuda())).cuda()
 
+    graph.fa_edge_index = []
 
-            new_nodes_count += 1
+    for k in range(1, MAX_K+1):
+        neigh = torch.zeros(len(graph.x), len(graph.x), dtype=torch.bool).cuda()
+        comps = g_decomp.get(k)
+        if comps:
+            for comp in comps:
+                #print(comp)
+                ids = torch.tensor(list(comp), dtype=torch.long)
+                neigh[(ids, ids)] = True
+        print((neigh == True).nonzero(as_tuple=False))
+        graph.fa_edge_index.append((neigh == True).nonzero(as_tuple=False))
 
-    #print(graph.x)
-    #print(graph.edge_index)
-    #print(graph.num_nodes)
-    #print(graph.edge_attr)
-    #print('----------------')
-    #print(g_decomp)
-    #exit()
-    #print(flag)
-    #print(graph.edge_index)
-    #print(g_decomp)
-    #exit()
-    graph.new_cnt_edges = len(graph.edge_attr) - graph.original_cnt_edges
-    graph.new_cnt_nodes = new_nodes_count
-    #print(graph.edge_index)
-    #print(graph.edge_attr)
-    max_node = 0
-    for i in range(len(graph.edge_index[0])):
-        max_node = max(max_node, graph.edge_index[0][i])
-
+    #print(graph.fa_edge_index)
     '''for i in g_decomp:
         if i >= MAX_K:
             break
