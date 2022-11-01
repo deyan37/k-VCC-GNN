@@ -52,8 +52,13 @@ def add_vcc_data(graph):
             for comp in comps:
                 #print(comp)
                 ids = torch.tensor(list(comp), dtype=torch.long)
-                neigh[(ids, ids)] = True
-        print((neigh == True).nonzero(as_tuple=False))
+                edge_index_list.append(torch.combinations(ids[0], with_replacement=True).cuda())
+                edge_index_list.append(torch.index_select(torch.combinations(ids[0], with_replacement=False).cuda(), 1,
+                                                          torch.tensor([1, 0]).cuda()))
+
+                #neigh[(ids, ids)] = True
+        #print((neigh == True).nonzero(as_tuple=False))
+        graph.fa_edge_index =
         graph.fa_edge_index.append((neigh == True).nonzero(as_tuple=False))
 
     #print(graph.fa_edge_index)
