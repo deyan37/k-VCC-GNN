@@ -120,7 +120,7 @@ def add_vcc_data(graph):
     graph.k_vcc_edges = torch.transpose(
         complete_edges[None, :, :].repeat(MAX_K, 1, 1), 0, 2
     )'''
-    return graph
+    return graph.cuda()
 
 def train(model, device, loader, optimizer, task_type):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
