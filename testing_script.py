@@ -3,7 +3,7 @@ import os
 import math
 
 all_datasets = ["ogbg-molbace", "ogbg-moltox21", "ogbg-molbbbp", "ogbg-molclintox", "ogbg-molmuv", "ogbg-molsider", "ogbg-moltoxcast"]
-datasets = ["ogbg-moltox21", "ogbg-moltoxcast"]
+datasets = ["ogbg-molbace"]
 results = ""
 for d in datasets:
     sum = 0
