@@ -29,11 +29,16 @@ class GINConv(MessagePassing):
 
         self.edge_encoder = EdgeEncoder(emb_dim=emb_dim).cuda()
 
-    def forward(self, x, edge_index, edge_attr, mask1, mask2):
-        edge_embedding = torch.zeros(len(edge_attr), self.emb_dim).cuda()
-        edge_embedding[mask1] = self.bond_encoder(edge_attr[mask1])
-        edge_embedding[mask2] = self.edge_encoder(edge_attr[mask2])
-
+    def forward(self, x, edge_index, edge_attr, is_fa):
+        #edge_embedding = torch.zeros(len(edge_attr), self.emb_dim).cuda()
+        #edge_embedding[mask1] = self.bond_encoder(edge_attr[mask1])
+        #edge_embedding[mask2] = self.edge_encoder(edge_attr[mask2])
+        if is_fa:
+            edge_embedding = self.edge_encoder(edge_attr)
+        else:
+            edge_embedding = self.bond_encoder(edge_attr)
+        #print(edge_attr)
+        #print(edge_embedding)
         out = self.mlp(((torch.tensor([1]).cuda() + self.eps) * x).cuda() + self.propagate(edge_index, x=x, edge_attr=edge_embedding).cuda()).cuda()
 
 
@@ -98,7 +103,8 @@ class GNN_node(torch.nn.Module):
             raise ValueError("Number of GNN layers must be greater than 1.")
 
         self.atom_encoder = AtomEncoder(emb_dim).cuda()
-        self.node_encoder = NodeEncoder(emb_dim)
+        self.edge_encoder = EdgeEncoder(emb_dim).cuda()
+        #self.node_encoder = NodeEncoder(emb_dim)
 
         self.emb_dim = emb_dim
 
@@ -106,7 +112,7 @@ class GNN_node(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.batch_norms = torch.nn.ModuleList()
 
-        for layer in range(num_layer-1):
+        for layer in range(num_layer):
             if gnn_type == 'gin':
                 self.convs.append(GINConv(emb_dim).cuda())
             elif gnn_type == 'gcn':
@@ -115,37 +121,26 @@ class GNN_node(torch.nn.Module):
                 raise ValueError('Undefined GNN type called {}'.format(gnn_type))
 
             self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).cuda())
-        self.fa_conv = NodeGINConv(nn=torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.BatchNorm1d(2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim)), train_eps=True).cuda()
+        self.kfa_conv = GINConv(emb_dim).cuda()
         self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).cuda())
 
     def forward(self, batched_data):
         x, edge_index, edge_attr, batch = batched_data.x.cuda(), batched_data.edge_index.cuda(), batched_data.edge_attr.cuda(), batched_data.batch.cuda()
-        mask1_edges = torch.zeros(len(edge_attr), dtype=torch.bool).cuda()
-        mask1_nodes = torch.zeros(len(x), dtype=torch.bool).cuda()
-        mask2_edges = torch.ones(len(edge_attr), dtype=torch.bool).cuda()
-        mask2_nodes = torch.ones(len(x), dtype=torch.bool).cuda()
-        x1 = torch.zeros(len(x), self.emb_dim).cuda()
-        offset = 0
-        for i in range(len(batched_data.original_cnt_edges)):
-            mask1_edges[offset: int(offset+int(batched_data.original_cnt_edges[i]))] = torch.ones(int(batched_data.original_cnt_edges[i]))
-            mask2_edges[offset: int(offset+int(batched_data.original_cnt_edges[i]))] = torch.zeros(int(batched_data.original_cnt_edges[i]))
-            offset += batched_data.original_cnt_edges[i] + batched_data.new_cnt_edges[i]
-
-        offset = 0
-        for i in range(len(batched_data.original_cnt_nodes)):
-            mask1_nodes[offset: int(offset + int(batched_data.original_cnt_nodes[i]))] = torch.ones(
-                int(batched_data.original_cnt_nodes[i]))
-            mask2_nodes[offset: int(offset + int(batched_data.original_cnt_nodes[i]))] = torch.zeros(
-                int(batched_data.original_cnt_nodes[i]))
-            offset += batched_data.original_cnt_nodes[i] + batched_data.new_cnt_nodes[i]
-
-        x1[mask2_nodes] = self.node_encoder(x[mask2_nodes])
-        x1[mask1_nodes] = self.atom_encoder(x[mask1_nodes])
-
+        fa_edge_index_list = batched_data.fa_edge_index
+        fa_edge_index = torch.hstack(fa_edge_index_list).cuda()
+        #print(fa_edge_index)
+        fa_edge_attr_list = []
+        for i in range(len(fa_edge_index_list)):
+            fa_edge_attr_list.append(torch.full((len(fa_edge_index_list[i][0]), 3), i))
+        fa_edge_attr = torch.vstack(fa_edge_attr_list).cuda()
+        #print(fa_edge_attr)
+        #print(edge_attr)
         ### computing input node embedding
-        h_list = [x1]
+        h_list = [self.atom_encoder(x)]
+        #print(self.num_layer)
+        #print('===================')
 
-        fully_adj = torch.zeros((len(x), len(x))).cuda()
+        '''fully_adj = torch.zeros((len(x), len(x))).cuda()
 
         last = 0
         for i in range(0, batched_data.ptr.__len__()):
@@ -153,19 +148,19 @@ class GNN_node(torch.nn.Module):
             #print(ids[0])
             fully_adj[(ids[0], ids[0])] = 1
 
-        edge_index_fa = fully_adj.nonzero().t().contiguous().cuda()
+        edge_index_fa = fully_adj.nonzero().t().contiguous().cuda()'''
 
         for layer in range(self.num_layer):
 
             if layer == self.num_layer - 1:
-                h = self.fa_conv(h_list[layer], edge_index_fa)
+                h = self.kfa_conv(h_list[layer], fa_edge_index, fa_edge_attr, True)
                 h = self.batch_norms[layer](h)
                 h = F.dropout(h, self.drop_ratio, training=self.training)
                 if self.residual:
                     h += h_list[layer]
                 h_list.append(h)
             else:
-                h = self.convs[layer](h_list[layer], edge_index, edge_attr, mask1_edges, mask2_edges)
+                h = self.convs[layer](h_list[layer], edge_index, edge_attr, False)
                 h = self.batch_norms[layer](h)
 
                 h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
