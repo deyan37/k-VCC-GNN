@@ -140,7 +140,7 @@ class GNN_node(torch.nn.Module):
         
         for layer in range(self.num_layer):
 
-            if layer == self.num_layer - 1:
+            if layer == 0:
                 h = self.kfa_conv(h_list[layer], fa_edge_index, fa_edge_attr, True)
                 h = self.batch_norms[layer](h)
                 h = F.dropout(h, self.drop_ratio, training=self.training)
