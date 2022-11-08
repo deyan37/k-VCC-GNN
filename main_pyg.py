@@ -176,8 +176,8 @@ def main():
                         help='GNN gin, gin-virtual, or gcn, or gcn-virtual (default: gin-virtual)')
     parser.add_argument('--drop_ratio', type=float, default=0.5,
                         help='dropout ratio (default: 0.5)')
-    parser.add_argument('--num_layer', type=int, default=3,
-                        help='number of GNN message passing layers (default: 3)')
+    parser.add_argument('--num_layer', type=int, default=5,
+                        help='number of GNN message passing layers (default: 5)')
     parser.add_argument('--emb_dim', type=int, default=32,
                         help='dimensionality of hidden units in GNNs (default: 32)')
     parser.add_argument('--dim0', type=int, default=300,
