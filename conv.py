@@ -116,7 +116,7 @@ class GNN_node(torch.nn.Module):
             if gnn_type == 'gin':
                 self.convs.append(GINConv(emb_dim).cuda())
             elif gnn_type == 'gcn':
-                self.convs.append(GaCNConv(emb_dim).cuda())
+                self.convs.append(GCNConv(emb_dim).cuda())
             else:
                 raise ValueError('Undefined GNN type called {}'.format(gnn_type))
 
@@ -140,7 +140,7 @@ class GNN_node(torch.nn.Module):
         
         for layer in range(self.num_layer):
 
-            if layer == 0:
+            if layer == self.num_layer//2:
                 h = self.kfa_conv(h_list[layer], fa_edge_index, fa_edge_attr, True)
                 h = self.batch_norms[layer](h)
                 h = F.dropout(h, self.drop_ratio, training=self.training)
