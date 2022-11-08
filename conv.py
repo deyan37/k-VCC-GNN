@@ -137,19 +137,7 @@ class GNN_node(torch.nn.Module):
         #print(edge_attr)
         ### computing input node embedding
         h_list = [self.atom_encoder(x)]
-        #print(self.num_layer)
-        #print('===================')
-
-        '''fully_adj = torch.zeros((len(x), len(x))).cuda()
-
-        last = 0
-        for i in range(0, batched_data.ptr.__len__()):
-            ids = (batched_data.batch == i).nonzero(as_tuple=True)
-            #print(ids[0])
-            fully_adj[(ids[0], ids[0])] = 1
-
-        edge_index_fa = fully_adj.nonzero().t().contiguous().cuda()'''
-
+        
         for layer in range(self.num_layer):
 
             if layer == self.num_layer - 1:
