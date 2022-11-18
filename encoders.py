@@ -6,14 +6,19 @@ class NodeEncoder(torch.nn.Module):
 
         self.node_embedding_list = torch.nn.ModuleList().cuda()
 
-        for i in range(9):
-            emb = torch.nn.Embedding(20, emb_dim)
+        for i in range(21):
+            emb = torch.nn.Embedding(2000, emb_dim)
             #torch.nn.init.xavier_uniform_(emb.weight.data)
             self.node_embedding_list.append(emb)
 
     def forward(self, x):
         x_embedding = 0
+        #print(len(x[0]))
+        #print(x.shape[1], len(self.node_embedding_list))
         for i in range(x.shape[1]):
+            #print(torch.max(x[:, i]))
+            #print(torch.min(x[:, i]))
+            #print(i, len(self.node_embedding_list))
             #print(x_embedding, self.node_embedding_list[i](x[:, i]))
             x_embedding += self.node_embedding_list[i](x[:, i])
 

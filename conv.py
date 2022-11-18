@@ -86,7 +86,7 @@ class GNN_node(torch.nn.Module):
     Output:
         node representations
     """
-    def __init__(self, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin'):
+    def __init__(self, num_layer, emb_dim, drop_ratio = 0.5, JK = "last", residual = False, gnn_type = 'gin', dataset = 'ogbg'):
         '''
             emb_dim (int): node embedding dimensionality
             num_layer (int): number of GNN message passing layers
@@ -96,6 +96,7 @@ class GNN_node(torch.nn.Module):
         self.num_layer = num_layer
         self.drop_ratio = drop_ratio
         self.JK = JK
+        self.dataset = dataset
         ### add residual connection or not
         self.residual = residual
 
@@ -104,7 +105,7 @@ class GNN_node(torch.nn.Module):
 
         self.atom_encoder = AtomEncoder(emb_dim).cuda()
         self.edge_encoder = EdgeEncoder(emb_dim).cuda()
-        #self.node_encoder = NodeEncoder(emb_dim)
+        self.node_encoder = NodeEncoder(emb_dim).cuda()
 
         self.emb_dim = emb_dim
 
@@ -125,7 +126,10 @@ class GNN_node(torch.nn.Module):
         self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim).cuda())
 
     def forward(self, batched_data):
-        x, edge_index, edge_attr, batch = batched_data.x.cuda(), batched_data.edge_index.cuda(), batched_data.edge_attr.cuda(), batched_data.batch.cuda()
+        x = batched_data.x.cuda()
+        edge_index = batched_data.edge_index.cuda()
+        edge_attr = batched_data.edge_attr.cuda()
+        batch = batched_data.batch.cuda()
         fa_edge_index_list = batched_data.fa_edge_index
         fa_edge_index = torch.hstack(fa_edge_index_list).cuda()
         #print(fa_edge_index)
@@ -136,8 +140,11 @@ class GNN_node(torch.nn.Module):
         #print(fa_edge_attr)
         #print(edge_attr)
         ### computing input node embedding
-        h_list = [self.atom_encoder(x)]
-        
+        if self.dataset == 'ogbg':
+            h_list = [self.atom_encoder(x)]
+        else:
+            x = torch.add(x, 1000)
+            h_list = [self.node_encoder(x)]
         for layer in range(self.num_layer):
 
             if layer == self.num_layer - 1:

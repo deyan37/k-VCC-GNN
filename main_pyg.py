@@ -1,5 +1,6 @@
 import torch
 from torch_geometric.loader import DataLoader
+from torch_geometric.datasets import TUDataset
 import torch.optim as optim
 import torch.nn.functional as F
 from gnn import GNN
@@ -16,15 +17,16 @@ from networkx.algorithms import approximation as apxa
 import networkx as nx
 
 from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
+from tudataset_evaluator import Evaluator as TUEvaluator
 
 from config_vcc_gnn import MAX_K
 
+cross_entropy_criterion = torch.nn.CrossEntropyLoss()
 cls_criterion = torch.nn.BCEWithLogitsLoss()
 reg_criterion = torch.nn.MSELoss()
 def add_vcc_data(graph):
+    #print('ehoehoehoehoehoehoe')
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    #device = "cpu"
-    #print(device)
     G = nx.Graph()
     for i in range(0, graph.num_nodes):
         G.add_node(i)
@@ -41,6 +43,9 @@ def add_vcc_data(graph):
     #print(graph.edge_index)
     #print(graph.edge_attr)
     graph.edge_index = graph.edge_index.cuda()
+    if graph.edge_attr is None:
+        graph.edge_attr = torch.ones((len(graph.edge_index[0]), 3), dtype=torch.long)
+
     graph.edge_attr = graph.edge_attr.cuda()
 
     graph.fa_edge_index = []
@@ -99,6 +104,7 @@ def add_vcc_data(graph):
     graph.k_vcc_edges = torch.transpose(
         complete_edges[None, :, :].repeat(MAX_K, 1, 1), 0, 2
     )'''
+    graph.x = graph.x.to(torch.long)
     return graph.cuda()
 
 def train(model, device, loader, optimizer, task_type):
@@ -124,7 +130,14 @@ def train(model, device, loader, optimizer, task_type):
             #print('eho2')
             ## ignore nan targets (unlabeled) when computing training loss.
             is_labeled = batch.y == batch.y
-            if "classification" in task_type:
+
+            if "tudataset" in task_type:
+                #if pred.size() != batch.y.size():
+                #    batch.y = torch.reshape(batch.y, pred.size())
+                #print(batch.y)
+                #print(pred)
+                loss = cross_entropy_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.long).to(device)[is_labeled]).to(device)
+            elif "classification" in task_type:
                 loss = cls_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
             else:
                 loss = reg_criterion(pred.to(torch.float32).to(device)[is_labeled], batch.y.to(torch.float32).to(device)[is_labeled]).to(device)
@@ -153,6 +166,10 @@ def eval(model, device, loader, evaluator):
         else:
             with torch.no_grad():
                 pred = model(batch).to(device)
+                #print(pred)
+                pred = pred.argmax(axis=1)
+                #print(pred)
+                #exit()
 
             y_true.append(batch.y.cuda().view(pred.shape).detach().to(device))
             y_pred.append(pred.detach().to(device))
@@ -161,6 +178,8 @@ def eval(model, device, loader, evaluator):
     y_pred = torch.cat(y_pred, dim = 0).cpu().numpy()
 
     input_dict = {"y_true": y_true, "y_pred": y_pred}
+
+    #print(input_dict)
 
     return evaluator.eval(input_dict)
 
@@ -217,7 +236,22 @@ def main():
     # device = "cpu"
     ### automatic dataloading and splitting
     print('eho1')
-    dataset = PygGraphPropPredDataset(name = args.dataset, pre_transform=add_vcc_data)
+    dataset1 = 'no'
+    if args.dataset[0:4] == "ogbg":
+        dataset1 = 'ogbg'
+        dataset = PygGraphPropPredDataset(name = args.dataset, pre_transform=add_vcc_data)
+        split_idx = dataset.get_idx_split()
+        evaluator = Evaluator(args.dataset)
+    else:
+        dataset1 = 'tu'
+        dataset = TUDataset(root='/tmp/' + args.dataset, name=args.dataset, use_node_attr=True, pre_transform=add_vcc_data)
+        all = len(dataset)
+        x1 = int(all*0.8)
+        x2 = int(all*0.9)
+        split_idx = {"train": range(0, x1), "valid": range(x1, x2), "test": range(x2, all)}
+        evaluator = TUEvaluator()
+        dataset.num_tasks = 1
+        dataset.task_type = {"tudataset"}
     print('eho2')
     print(torch.cuda.is_available())
     #dataset.pre_transform = add_vcc_data
@@ -226,13 +260,12 @@ def main():
         pass
     elif args.feature == 'simple':
         # only retain the top two node/edge features
-        dataset.data.x = dataset.data.x[:,:2].cuda()
-        dataset.data.edge_attr = dataset.data.edge_attr[:,:2].cuda()
+        dataset.data.x = dataset.data.x[:, :2].cuda()
+        dataset.data.edge_attr = dataset.data.edge_attr[:, :2].cuda()
 
-    split_idx = dataset.get_idx_split()
+
 
     ### automatic evaluator. takes dataset name as input
-    evaluator = Evaluator(args.dataset)
 
     train_loader = DataLoader(dataset[split_idx["train"]], batch_size=args.batch_size, shuffle=True, num_workers = args.num_workers)
     valid_loader = DataLoader(dataset[split_idx["valid"]], batch_size=args.batch_size, shuffle=False, num_workers = args.num_workers)
@@ -243,8 +276,10 @@ def main():
     return'''
     #print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
     #print(args.num_layer)
+    if dataset1 =='tu':
+        dataset.num_tasks = dataset.num_classes
     if args.gnn == 'gin':
-        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False).to(device)
+        model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = False, dataset = dataset1).to(device)
     elif args.gnn == 'gin-virtual':
         model = GNN(gnn_type = 'gin', num_tasks = dataset.num_tasks, num_layer = args.num_layer, emb_dim = args.emb_dim, drop_ratio = args.drop_ratio, virtual_node = True).to(device)
     elif args.gnn == 'gcn':
@@ -261,16 +296,11 @@ def main():
     train_curve = []
 
     torch.backends.cudnn.benchmark = True
-    print('*************************')
-    print(device)
-
-    print(torch.cuda.device_count())
-    print(torch.cuda.current_device())
-    print(torch.cuda.get_device_name(0))
     #return
     for epoch in range(1, args.epochs + 1):
         print("=====Epoch {}".format(epoch))
         print('Training...')
+        print(dataset.task_type)
         train(model, device, train_loader, optimizer, dataset.task_type)
         #return
         print('Evaluating...')
@@ -280,9 +310,15 @@ def main():
 
         print({'Train': train_perf, 'Validation': valid_perf, 'Test': test_perf})
 
-        train_curve.append(train_perf[dataset.eval_metric])
-        valid_curve.append(valid_perf[dataset.eval_metric])
-        test_curve.append(test_perf[dataset.eval_metric])
+        print(train_perf)
+        print(valid_perf)
+        print(test_perf)
+        if dataset1 == 'ogbg':
+            train_curve.append(train_perf[dataset.eval_metric])
+            valid_curve.append(valid_perf[dataset.eval_metric])
+            test_curve.append(test_perf[dataset.eval_metric])
+        else:
+            pass
 
     if 'classification' in dataset.task_type:
         best_val_epoch = np.argmax(np.array(valid_curve))
