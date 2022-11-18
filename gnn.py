@@ -66,10 +66,7 @@ class GNN(torch.nn.Module):
 
     def forward(self, batched_data):
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        #device = 'cpu'
-        #print(device)
-
-        h_node = self.gnn_node(batched_data)
+        h_node = self.gnn_node(batched_data).to(device)
         h_graph = self.pool(h_node, batched_data.batch).to(device)
 
         return self.graph_pred_linear(h_graph).to(device)
