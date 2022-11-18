@@ -29,11 +29,24 @@ class GINConv(MessagePassing):
 
         self.edge_encoder = EdgeEncoder(emb_dim=emb_dim).cuda()
 
+<<<<<<< HEAD
     def forward(self, x, edge_index, edge_attr, mask1, mask2):
         edge_embedding = torch.zeros(len(edge_attr), self.emb_dim).cuda()
         edge_embedding[mask1] = self.bond_encoder(edge_attr[mask1])
         edge_embedding[mask2] = self.edge_encoder(edge_attr[mask2])
 
+=======
+    def forward(self, x, edge_index, edge_attr, is_fa):
+        #edge_embedding = torch.zeros(len(edge_attr), self.emb_dim).cuda()
+        #edge_embedding[mask1] = self.bond_encoder(edge_attr[mask1])
+        #edge_embedding[mask2] = self.edge_encoder(edge_attr[mask2])
+        if is_fa:
+            edge_embedding = self.edge_encoder(edge_attr)
+        else:
+            edge_embedding = self.bond_encoder(edge_attr)
+        #print(edge_attr)
+        #print(edge_embedding)
+>>>>>>> 35b204e5e73da0f99a2638f07f66b70557c171e2
         out = self.mlp(((torch.tensor([1]).cuda() + self.eps) * x).cuda() + self.propagate(edge_index, x=x, edge_attr=edge_embedding).cuda()).cuda()
 
 
@@ -98,6 +111,7 @@ class GNN_node(torch.nn.Module):
             raise ValueError("Number of GNN layers must be greater than 1.")
 
         self.atom_encoder = AtomEncoder(emb_dim).cuda()
+<<<<<<< HEAD
         self.node_encoder = NodeEncoder(emb_dim)
 
         self.emb_dim = emb_dim
@@ -111,6 +125,21 @@ class GNN_node(torch.nn.Module):
                 self.convs.append(GINConv(emb_dim).cuda())
             elif gnn_type == 'gcn':
                 self.convs.append(GaCNConv(emb_dim).cuda())
+=======
+        self.edge_encoder = EdgeEncoder(emb_dim).cuda()
+        #self.node_encoder = NodeEncoder(emb_dim)
+
+        self.emb_dim = emb_dim
+
+        ###List of GNNs
+        self.convs = torch.nn.ModuleList()
+        self.batch_norms = torch.nn.ModuleList()
+
+        for layer in range(num_layer):
+            if gnn_type == 'gin':
+                self.convs.append(GINConv(emb_dim).cuda())
+            elif gnn_type == 'gcn':
+                self.convs.append(GCNConv(emb_dim).cuda())
             else:
                 raise ValueError('Undefined GNN type called {}'.format(gnn_type))
 
@@ -166,6 +195,22 @@ class GNN_node(torch.nn.Module):
 
             if layer == self.num_layer - 1:
                 h = self.fa_conv(h_list[layer], edge_index_fa)
+        fa_edge_index_list = batched_data.fa_edge_index
+        fa_edge_index = torch.hstack(fa_edge_index_list).cuda()
+        #print(fa_edge_index)
+        fa_edge_attr_list = []
+        for i in range(len(fa_edge_index_list)):
+            fa_edge_attr_list.append(torch.full((len(fa_edge_index_list[i][0]), 3), i))
+        fa_edge_attr = torch.vstack(fa_edge_attr_list).cuda()
+        #print(fa_edge_attr)
+        #print(edge_attr)
+        ### computing input node embedding
+        h_list = [self.atom_encoder(x)]
+        
+        for layer in range(self.num_layer):
+
+            if layer == self.num_layer//2:
+                h = self.kfa_conv(h_list[layer], fa_edge_index, fa_edge_attr, True)
                 h = self.batch_norms[layer](h)
                 h = F.dropout(h, self.drop_ratio, training=self.training)
                 if self.residual:

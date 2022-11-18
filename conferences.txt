@@ -1,0 +1,6 @@
+icml - deadline jan
+neurips - end of year, deadline may
+iclr - deadline september, may
+uai - in summer, deadline february
+log - september deadline, end of year
+aaai - august deadline, february

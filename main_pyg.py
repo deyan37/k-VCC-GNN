@@ -46,7 +46,6 @@ def add_vcc_data(graph):
     neigh = np.zeros((MAX_K, graph.num_nodes + new_nodes_count, graph.num_nodes + new_nodes_count))
 
     new_nodes_count = 0
-
     #print(graph.edge_index)
     #print(graph.edge_attr)
     graph.edge_index = graph.edge_index.cuda()
@@ -88,6 +87,31 @@ def add_vcc_data(graph):
     for i in range(len(graph.edge_index[0])):
         max_node = max(max_node, graph.edge_index[0][i])
 
+
+    graph.fa_edge_index = []
+
+    edge_index_list = []
+    for k in range(1, MAX_K+1):
+        #neigh = torch.zeros(len(graph.x), len(graph.x), dtype=torch.bool).cuda()
+        comps = g_decomp.get(k)
+        if comps:
+            for comp in comps:
+                ids = torch.tensor(list(comp), dtype=torch.long)
+                #print('==========================')
+                #print(len(ids))
+                edge_index_list.append(torch.combinations(ids, with_replacement=True).cuda())
+                edge_index_list.append(torch.index_select(torch.combinations(ids, with_replacement=False).cuda(), 1,
+                                                          torch.tensor([1, 0]).cuda()))
+        #print(edge_index_list)
+        #print(torch.vstack(edge_index_list).t())
+            graph.fa_edge_index.append(torch.vstack(edge_index_list).t())
+        else:
+            graph.fa_edge_index.append(torch.tensor([[], []], dtype=torch.long).cuda())
+    #    graph.fa_edge_index.append((neigh == True).nonzero(as_tuple=False))
+    '''for bruh in graph.fa_edge_index:
+        if bruh.dtype != torch.long:
+            print(bruh.dtype)'''
+    #print(graph.fa_edge_index)
     '''for i in g_decomp:
         if i >= MAX_K:
             break
@@ -120,7 +144,7 @@ def add_vcc_data(graph):
     graph.k_vcc_edges = torch.transpose(
         complete_edges[None, :, :].repeat(MAX_K, 1, 1), 0, 2
     )'''
-    return graph
+    return graph.cuda()
 
 def train(model, device, loader, optimizer, task_type):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -197,8 +221,8 @@ def main():
                         help='GNN gin, gin-virtual, or gcn, or gcn-virtual (default: gin-virtual)')
     parser.add_argument('--drop_ratio', type=float, default=0.5,
                         help='dropout ratio (default: 0.5)')
-    parser.add_argument('--num_layer', type=int, default=2,
-                        help='number of GNN message passing layers (default: 2)')
+    parser.add_argument('--num_layer', type=int, default=5,
+                        help='number of GNN message passing layers (default: 5)')
     parser.add_argument('--emb_dim', type=int, default=32,
                         help='dimensionality of hidden units in GNNs (default: 32)')
     parser.add_argument('--dim0', type=int, default=300,
