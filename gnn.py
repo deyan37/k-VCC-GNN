@@ -78,14 +78,12 @@ class GNN(torch.nn.Module):
     GGNN = auto()
     GIN = auto()
     GAT = auto()
-
     @staticmethod
     def from_string(s):
         try:
             return GNN_TYPE[s]
         except KeyError:
             raise ValueError()
-
     def get_layer(self, in_dim, out_dim):
         if self is GNN_TYPE.GCN:
             return GCNConv(
@@ -101,12 +99,6 @@ class GNN(torch.nn.Module):
             # The output will be the concatenation of the heads, yielding a vector of size out_dim
             num_heads = 4
             return GATConv(in_dim, out_dim // num_heads, heads=num_heads)
-
-
-
-
-
-
 class GNN_FA(torch.nn.Module):
     def __init__(self, gnn_type, num_layers, dim0, h_dim, out_dim, last_layer_fully_adjacent,
                  unroll, layer_norm, use_activation, use_residual):
@@ -118,7 +110,6 @@ class GNN_FA(torch.nn.Module):
         self.use_activation = use_activation
         self.use_residual = use_residual
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
         self.num_layers = num_layers
         self.layer0_keys = nn.Embedding(num_embeddings=dim0 + 1, embedding_dim=h_dim)
         self.layer0_values = nn.Embedding(num_embeddings=dim0 + 1, embedding_dim=h_dim)
@@ -136,18 +127,14 @@ class GNN_FA(torch.nn.Module):
         if self.use_layer_norm:
             for i in range(num_layers):
                 self.layer_norms.append(nn.LayerNorm(h_dim))
-
         self.out_dim = out_dim
         self.out_layer = nn.Linear(in_features=h_dim, out_features=out_dim + 1, bias=False)
-
     def forward(self, data):
         x, edge_index, batch, edge_attr = data.x, data.edge_index, data.batch, data.edge_attr
-
         x_key, x_val = x[:, 0], x[:, 1]
         x_key_embed = self.layer0_keys(x_key)
         x_val_embed = self.layer0_values(x_val)
         x = x_key_embed + x_val_embed
-
         for i in range(self.num_layers):
             if self.unroll:
                 layer = self.layers[0]
@@ -157,7 +144,6 @@ class GNN_FA(torch.nn.Module):
             if self.last_layer_fully_adjacent and i == self.num_layers - 1:
                 source_nodes = torch.arange(0, data.num_nodes).to(self.device)
                 edges = torch.stack([source_nodes, source_nodes], dim=0)
-
             else:
                 edges = edge_index
             new_x = layer(new_x, edges)
@@ -169,14 +155,8 @@ class GNN_FA(torch.nn.Module):
                 x = new_x
             if self.use_layer_norm:
                 x = self.layer_norms[i](x)
-
         logits = self.out_layer(x[0])
         return logits
-
-
-
-
-
 if __name__ == '__main__':
     GNN(num_tasks = 10)
     GNN_FA()'''
